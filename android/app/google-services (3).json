@@ -1,0 +1,154 @@
+{
+  "project_info": {
+    "project_number": "316605580809",
+    "project_id": "circuitpoint-9c9aa",
+    "storage_bucket": "circuitpoint-9c9aa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:316605580809:android:da2dd5fdab11e133771ad8",
+        "android_client_info": {
+          "package_name": "circuit.point"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "316605580809-m7cp3810um66qnpt3eh2bmvhvn8k937m.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBwFMVnYor2oun8xlu1QkcvM6urIDdR3WE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "316605580809-m7cp3810um66qnpt3eh2bmvhvn8k937m.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "316605580809-2mgo3hg6n4tkakasq6v2rv6fkp2osam2.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.taskwe"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:316605580809:android:238b5ae968da1143771ad8",
+        "android_client_info": {
+          "package_name": "com.example.lockscreen"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "316605580809-m7cp3810um66qnpt3eh2bmvhvn8k937m.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBwFMVnYor2oun8xlu1QkcvM6urIDdR3WE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "316605580809-m7cp3810um66qnpt3eh2bmvhvn8k937m.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "316605580809-2mgo3hg6n4tkakasq6v2rv6fkp2osam2.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.taskwe"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:316605580809:android:c4bed68a0754fb56771ad8",
+        "android_client_info": {
+          "package_name": "com.example.mainlock"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "316605580809-m7cp3810um66qnpt3eh2bmvhvn8k937m.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBwFMVnYor2oun8xlu1QkcvM6urIDdR3WE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "316605580809-m7cp3810um66qnpt3eh2bmvhvn8k937m.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "316605580809-2mgo3hg6n4tkakasq6v2rv6fkp2osam2.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.taskwe"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:316605580809:android:ed1470728980c457771ad8",
+        "android_client_info": {
+          "package_name": "com.example.taskwe"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "316605580809-m7cp3810um66qnpt3eh2bmvhvn8k937m.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBwFMVnYor2oun8xlu1QkcvM6urIDdR3WE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "316605580809-m7cp3810um66qnpt3eh2bmvhvn8k937m.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "316605580809-2mgo3hg6n4tkakasq6v2rv6fkp2osam2.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.taskwe"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

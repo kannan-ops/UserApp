@@ -1,0 +1,55 @@
+name: enquiry_app
+description: "A premium modern lockscreen and dashboard Flutter application."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  provider: ^6.1.2
+  shared_preferences: ^2.2.3
+  local_auth: ^2.2.0
+  flutter_screenutil: ^5.9.0
+  google_fonts: ^6.2.0
+  pattern_lock: ^2.0.0
+  animations: ^2.0.11
+  local_auth_android: ^1.0.53
+  local_auth_darwin: ^1.4.3
+  dio: ^5.4.0
+  dio_cookie_manager: ^3.4.0
+  cookie_jar: ^4.0.9
+  http: ^1.6.0
+  device_info_plus: ^12.3.0
+  package_info_plus: ^8.1.0
+  permission_handler: ^11.3.1
+  geolocator: ^13.0.1
+  flutter_secure_storage: ^10.3.1
+  image_picker: ^1.2.2
+  path_provider: ^2.1.5
+  mailer: ^7.1.0
+  google_sign_in: ^6.2.1
+
+  uuid: any
+  url_launcher: ^6.3.2
+  file_picker: ">=10.0.0 <10.3.9"
+  flutter_riverpod: ^2.5.1
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "asset/logo.png"
+
