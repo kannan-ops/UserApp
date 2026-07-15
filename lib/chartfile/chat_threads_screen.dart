@@ -99,7 +99,7 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with SingleTicker
   Future<void> _fetchBulkOrders() async {
     setState(() => _isLoadingBulk = true);
     try {
-      final res = await ApiDebugLogger.httpClient.get(Uri.parse("https://bulk.srivagroups.in/api/bulk-orders"));
+      final res = await ApiDebugLogger.httpClient.get(Uri.parse("https://bulk.srivagroups.in/api/bulk-orders?limit=1000000"));
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
         List<dynamic> list = [];
@@ -124,7 +124,7 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with SingleTicker
   Future<void> _fetchEnquiries() async {
     setState(() => _isLoadingEnq = true);
     try {
-      final res = await ApiDebugLogger.httpClient.get(Uri.parse("https://bulk.srivagroups.in/api/enquiries"));
+      final res = await ApiDebugLogger.httpClient.get(Uri.parse("https://bulk.srivagroups.in/api/enquiries?limit=1000000"));
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
         List<dynamic> list = [];
@@ -149,7 +149,7 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with SingleTicker
   Future<void> _fetchSectors() async {
     setState(() => _isLoadingSec = true);
     try {
-      final res = await ApiDebugLogger.httpClient.get(Uri.parse("https://bulk.srivagroups.in/api/product"));
+      final res = await ApiDebugLogger.httpClient.get(Uri.parse("https://bulk.srivagroups.in/api/product?limit=1000000"));
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
         List<dynamic> list = [];
@@ -336,7 +336,14 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with SingleTicker
     String timeText = "";
     if (messages.isNotEmpty) {
       final lastMsg = messages.last;
-      subtitleText = lastMsg["message"] ?? "";
+      final rawMsg = (lastMsg["message"] ?? "").toString();
+      final regExp = RegExp(r'\n\n\[via:(.*?)\]$');
+      final match = regExp.firstMatch(rawMsg);
+      if (match != null) {
+        subtitleText = rawMsg.substring(0, match.start);
+      } else {
+        subtitleText = rawMsg;
+      }
       final created = lastMsg["created_at"];
       if (created != null) {
         try {

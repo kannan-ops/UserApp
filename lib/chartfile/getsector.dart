@@ -5,6 +5,8 @@ import 'package:enquiry_app/utils/api_debug_logger.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'editsec.dart';
 import 'chat_screen.dart';
+import 'package:enquiry_app/widgets/reply_form_dialog.dart';
+import 'package:enquiry_app/services/storage_service.dart';
 
 class GetById extends StatefulWidget {
   const GetById({super.key});
@@ -16,80 +18,188 @@ class GetById extends StatefulWidget {
 class _GetByIdState extends State<GetById> {
   late Future<List<dynamic>> futureProducts;
   String _searchQuery = "";
-  final String apiUrl = "https://bulk.srivagroups.in/api/product";
-  final Map<int, bool> _unreadChats = {};
-  final Set<int> _checkingChats = {};
+  String _selectedFilter = "all";
+  final String apiUrl = "https://bulk.srivagroups.in/api/product?limit=1000000";
 
-  Future<void> _checkChatUnread(String module, int id) async {
-    if (_checkingChats.contains(id)) return;
-    _checkingChats.add(id);
+  final Map<int, bool> _unreadChats = {};
+  final Map<int, List<dynamic>> _chatMessages = {};
+  bool _isChatStatusLoaded = false;
+
+  Future<void> _fetchAllChatStatuses(List<dynamic> items, String module) async {
+    Map<int, List<dynamic>> tempChatMessages = {};
+    Map<int, bool> tempUnreadChats = {};
+    
+    final chunkSize = 10;
+    for (var i = 0; i < items.length; i += chunkSize) {
+      if (!mounted) return;
+      final chunk = items.sublist(i, i + chunkSize > items.length ? items.length : i + chunkSize);
+      
+      await Future.wait(chunk.map((item) async {
+        if (item is! Map) return;
+        final id = item["id"] is int ? item["id"] : int.tryParse(item["id"].toString()) ?? 0;
+        if (id == 0) return;
+        
+        final url = "https://bulk.srivagroups.in/api/messages/$module/$id";
+        try {
+          final res = await ApiDebugLogger.httpClient.get(Uri.parse(url)).timeout(const Duration(seconds: 5));
+          if (res.statusCode == 200) {
+            final decoded = jsonDecode(res.body);
+            List<dynamic> msgs = [];
+            if (decoded is List) {
+              msgs = decoded;
+            } else if (decoded is Map) {
+              if (decoded.containsKey('messages')) {
+                final m = decoded['messages'];
+                if (m is List) msgs = m;
+              } else if (decoded.containsKey('conversation')) {
+                final c = decoded['conversation'];
+                if (c is List) msgs = c;
+              } else if (decoded.containsKey('data')) {
+                final d = decoded['data'];
+                if (d is List) {
+                  msgs = d;
+                } else if (d is Map) {
+                  if (d.containsKey('messages')) {
+                    final dm = d['messages'];
+                    if (dm is List) msgs = dm;
+                  } else if (d.containsKey('conversation')) {
+                    final dc = d['conversation'];
+                    if (dc is List) msgs = dc;
+                  }
+                }
+              }
+            }
+            tempChatMessages[id] = msgs;
+            if (msgs.isNotEmpty) {
+              final lastMsg = msgs.last;
+              final sender = lastMsg["sender"]?.toString().toLowerCase() ?? "";
+              tempUnreadChats[id] = (sender != "admin" && sender.isNotEmpty);
+            } else {
+              tempUnreadChats[id] = false;
+            }
+          }
+        } catch (_) {}
+      }));
+    }
+    
+    if (mounted) {
+      setState(() {
+        _chatMessages.addAll(tempChatMessages);
+        _unreadChats.addAll(tempUnreadChats);
+        _isChatStatusLoaded = true;
+      });
+    }
+  }
+
+  Future<void> _checkSingleChatStatus(String module, int id) async {
+    if (id == 0) return;
     final url = "https://bulk.srivagroups.in/api/messages/$module/$id";
     try {
-      final res = await ApiDebugLogger.httpClient.get(Uri.parse(url));
+      final res = await ApiDebugLogger.httpClient.get(Uri.parse(url)).timeout(const Duration(seconds: 5));
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
         List<dynamic> msgs = [];
         if (decoded is List) {
           msgs = decoded;
-        } else if (decoded is Map && decoded.containsKey('messages')) {
-          final m = decoded['messages'];
-          if (m is List) msgs = m;
-        } else if (decoded is Map && decoded.containsKey('data')) {
-          final d = decoded['data'];
-          if (d is List) {
-            msgs = d;
-          } else if (d is Map && d.containsKey('messages')) {
-            final dm = d['messages'];
-            if (dm is List) msgs = dm;
-          }
-        }
-        
-        if (msgs.isNotEmpty) {
-          final lastMsg = msgs.last;
-          final sender = lastMsg["sender"]?.toString().toLowerCase() ?? "";
-          if (sender != "admin" && sender.isNotEmpty) {
-            if (mounted) {
-              setState(() {
-                _unreadChats[id] = true;
-              });
-            }
-            return;
-          }
-        }
-      }
-    } catch (_) {}
-    if (mounted) {
-      setState(() {
-        _unreadChats[id] = false;
-      });
-    }
-  }
-
-
-  Future<List<dynamic>> fetchProducts() async {
-    final res = await ApiDebugLogger.httpClient.get(Uri.parse(apiUrl));
-
-    if (res.statusCode == 200) {
-      final decoded = jsonDecode(res.body);
-      List<dynamic> rawList = [];
-      if (decoded is List) {
-        rawList = decoded;
-      } else if (decoded is Map) {
-        if (decoded.containsKey('data')) {
-          final dataVal = decoded['data'];
-          if (dataVal is List) {
-            rawList = dataVal;
-          } else if (dataVal is Map) {
-            if (dataVal.containsKey('data')) {
-              final nestedDataVal = dataVal['data'];
-              if (nestedDataVal is List) {
-                rawList = nestedDataVal;
+        } else if (decoded is Map) {
+          if (decoded.containsKey('messages')) {
+            final m = decoded['messages'];
+            if (m is List) msgs = m;
+          } else if (decoded.containsKey('conversation')) {
+            final c = decoded['conversation'];
+            if (c is List) msgs = c;
+          } else if (decoded.containsKey('data')) {
+            final d = decoded['data'];
+            if (d is List) {
+              msgs = d;
+            } else if (d is Map) {
+              if (d.containsKey('messages')) {
+                final dm = d['messages'];
+                if (dm is List) msgs = dm;
+              } else if (d.containsKey('conversation')) {
+                final dc = d['conversation'];
+                if (dc is List) msgs = dc;
               }
             }
           }
         }
+        if (mounted) {
+          setState(() {
+            _chatMessages[id] = msgs;
+            if (msgs.isNotEmpty) {
+              final lastMsg = msgs.last;
+              final sender = lastMsg["sender"]?.toString().toLowerCase() ?? "";
+              _unreadChats[id] = (sender != "admin" && sender.isNotEmpty);
+            } else {
+              _unreadChats[id] = false;
+            }
+          });
+        }
       }
-      final list = rawList.map((x) {
+    } catch (_) {}
+  }
+  final Set<int> _expandedIds = {};
+  bool _isAdmin = false;
+
+
+  Future<List<dynamic>> fetchProducts() async {
+    _isChatStatusLoaded = false;
+    List<dynamic> allProducts = [];
+    int currentPage = 1;
+    const int limit = 1000000;
+    bool hasMore = true;
+
+    while (hasMore) {
+      final url = "https://bulk.srivagroups.in/api/product?limit=$limit&page=$currentPage";
+      final res = await ApiDebugLogger.httpClient.get(Uri.parse(url));
+
+      if (res.statusCode == 200) {
+        final decoded = jsonDecode(res.body);
+        List<dynamic> rawList = [];
+        int total = 0;
+
+        if (decoded is Map) {
+          if (decoded.containsKey('total')) {
+            total = decoded['total'] is int 
+                ? decoded['total'] 
+                : int.tryParse(decoded['total'].toString()) ?? 0;
+          }
+          if (decoded.containsKey('data')) {
+            final dataVal = decoded['data'];
+            if (dataVal is List) {
+              rawList = dataVal;
+            } else if (dataVal is Map) {
+              if (dataVal.containsKey('data')) {
+                final nestedDataVal = dataVal['data'];
+                if (nestedDataVal is List) {
+                  rawList = nestedDataVal;
+                }
+              }
+            }
+          }
+        } else if (decoded is List) {
+          rawList = decoded;
+        }
+
+        if (rawList.isEmpty) {
+          hasMore = false;
+        } else {
+          allProducts.addAll(rawList);
+          if (total > 0 && allProducts.length >= total) {
+            hasMore = false;
+          } else {
+            currentPage++;
+            if (currentPage > 100) {
+              hasMore = false;
+            }
+          }
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+
+      final list = allProducts.map((x) {
         if (x is Map) {
           final item = Map<String, dynamic>.from(x);
           item['total_Price'] ??= item['total_price'];
@@ -97,10 +207,9 @@ class _GetByIdState extends State<GetById> {
         }
         return x;
       }).toList();
+
+      _fetchAllChatStatuses(list, "sector");
       return list;
-    } else {
-      throw Exception("Failed to load data");
-    }
   }
 
   Future<void> deleteProduct(int id) async {
@@ -224,7 +333,7 @@ class _GetByIdState extends State<GetById> {
                                     SizedBox(
                                       width: double.infinity,
                                       child: ElevatedButton.icon(
-                                        onPressed: () => _launchWebUrl("https://bulk.srivagroups.in/$filePath"),
+                                        onPressed: () => _launchWebUrl("https://user.jobes24x7.com/$filePath"),
                                         icon: const Icon(Icons.picture_as_pdf, color: Colors.white),
                                         label: Text(
                                           "View PDF (${filePath.split('/').last})",
@@ -244,20 +353,18 @@ class _GetByIdState extends State<GetById> {
                                 );
                               }
                               
+                              if (!hasValidFile || isPdf) {
+                                return const SizedBox.shrink();
+                              }
+                              
                               final String imageUrl;
-                              final String titleText;
-                              if (hasValidFile && !isPdf) {
-                                titleText = "Attached Image:";
-                                if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
-                                  imageUrl = filePath;
-                                } else {
-                                  imageUrl = filePath.startsWith('/') 
-                                      ? "https://bulk.srivagroups.in$filePath" 
-                                      : "https://bulk.srivagroups.in/$filePath";
-                                }
+                              final String titleText = "Attached Image:";
+                              if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+                                imageUrl = filePath;
                               } else {
-                                titleText = "Product Image:";
-                                imageUrl = _getProductImageUrl(p["title"] ?? p["name"] ?? "");
+                                imageUrl = filePath.startsWith('/') 
+                                    ? "https://user.jobes24x7.com$filePath" 
+                                    : "https://user.jobes24x7.com/$filePath";
                               }
 
                               return Column(
@@ -316,25 +423,7 @@ class _GetByIdState extends State<GetById> {
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton.icon(
-                              icon: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  const Icon(Icons.chat, color: Colors.white),
-                                  if (_unreadChats[p["id"] is int ? p["id"] : int.tryParse(p["id"].toString()) ?? 0] ?? false)
-                                    Positioned(
-                                      right: -2,
-                                      top: -2,
-                                      child: Container(
-                                        width: 8,
-                                        height: 8,
-                                        decoration: const BoxDecoration(
-                                          color: Colors.red,
-                                          shape: BoxShape.circle,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
+                              icon: const Icon(Icons.chat, color: Colors.white),
                               label: const Text(
                                 "Chat",
                                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
@@ -358,44 +447,45 @@ class _GetByIdState extends State<GetById> {
                                       userName: p["name"] ?? "Sector Client",
                                     ),
                                   ),
-                                ).then((_) {
-                                  _unreadChats.remove(refId);
-                                  _checkingChats.remove(refId);
-                                  _checkChatUnread("product", refId);
-                                });
+                                );
                               },
                             ),
                           ),
                           const SizedBox(height: 16),
 
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            alignment: WrapAlignment.spaceEvenly,
+                          Row(
                             children: [
-                              _contactButton(
-                                icon: Icons.phone,
-                                label: "Call",
-                                color: Colors.green.shade600,
-                                onPressed: () => _launchCall(p["mobile"] ?? ""),
+                              Expanded(
+                                child: _contactButton(
+                                  icon: Icons.phone,
+                                  label: "Call",
+                                  color: Colors.green.shade600,
+                                  onPressed: () => _launchCall(p["mobile"] ?? ""),
+                                ),
                               ),
-                              _contactButton(
-                                icon: Icons.mail,
-                                label: "Email",
-                                color: Colors.amber.shade700,
-                                onPressed: () => _launchMail(p["email"] ?? ""),
-                              ),
-                              _contactButton(
-                                icon: Icons.chat,
-                                label: "WhatsApp",
-                                color: Colors.teal.shade600,
-                                onPressed: () => _launchWhatsApp(p["mobile"] ?? ""),
-                              ),
-                              _contactButton(
-                                icon: Icons.sms,
-                                label: "SMS",
-                                color: Colors.blue.shade600,
-                                onPressed: () => _launchSms(p["mobile"] ?? ""),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _contactButton(
+                                  icon: Icons.reply_rounded,
+                                  label: "Reply",
+                                  color: const Color(0xFF3B5BDB),
+                                  onPressed: () {
+                                    final refId = p["id"] is int ? p["id"] : int.tryParse(p["id"].toString()) ?? 0;
+                                    showDialog<bool>(
+                                      context: context,
+                                      builder: (context) => ReplyFormDialog(
+                                        phone: p["mobile"] ?? "",
+                                        email: p["email"] ?? "",
+                                        name: p["name"] ?? "",
+                                        company: p["company"] ?? "",
+                                        initialSubject: "Product Inquiry",
+                                        module: "product",
+                                        referenceId: refId,
+                                        fullData: p,
+                                      ),
+                                    );
+                                  },
+                                ),
                               ),
                             ],
                           ),
@@ -412,10 +502,157 @@ class _GetByIdState extends State<GetById> {
     );
   }
 
+  Widget _buildFilterChips() {
+    final filters = [
+      {'key': 'all', 'label': 'View All', 'icon': Icons.all_inclusive_rounded},
+      {'key': 'last', 'label': 'Last Added', 'icon': Icons.history_rounded},
+      {'key': 'unreplied', 'label': 'Not Replied', 'icon': Icons.mark_chat_unread_rounded},
+      {'key': 'received', 'label': 'Replies Received', 'icon': Icons.call_received_rounded},
+      {'key': 'sent', 'label': 'Replies Sent', 'icon': Icons.call_made_rounded},
+    ];
+
+    return Container(
+      height: 48,
+      color: Colors.white,
+      padding: const EdgeInsets.only(bottom: 8),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        itemCount: filters.length,
+        itemBuilder: (context, index) {
+          final filter = filters[index];
+          final isSelected = _selectedFilter == filter['key'];
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ChoiceChip(
+              showCheckmark: false,
+              avatar: Icon(
+                filter['icon'] as IconData,
+                color: isSelected ? Colors.white : const Color(0xFF3B5BDB),
+                size: 16,
+              ),
+              label: Text(
+                filter['label'] as String,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : const Color(0xFF1E293B),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+              selected: isSelected,
+              selectedColor: const Color(0xFF3B5BDB),
+              backgroundColor: const Color(0xFFF1F5F9),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: BorderSide(
+                  color: isSelected ? const Color(0xFF3B5BDB) : Colors.transparent,
+                  width: 1,
+                ),
+              ),
+              onSelected: (val) {
+                if (val) {
+                  setState(() {
+                    _selectedFilter = filter['key'] as String;
+                  });
+                }
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSummaryBanner(List<dynamic> items) {
+    int total = items.length;
+    int replied = 0;
+    int pending = 0;
+
+    for (var item in items) {
+      if (item is Map) {
+        final id = item["id"] is int ? item["id"] : int.tryParse(item["id"].toString()) ?? 0;
+        final msgs = _chatMessages[id];
+        if (msgs != null && msgs.any((m) => m["sender"]?.toString().toLowerCase() == "admin")) {
+          replied++;
+        } else {
+          pending++;
+        }
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF3B5BDB).withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFF3B5BDB).withOpacity(0.12), width: 1),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          _summaryItem("Total", total, Colors.grey.shade700),
+          _summaryItem("Replied", _isChatStatusLoaded ? replied : null, Colors.green.shade700),
+          _summaryItem("Pending", _isChatStatusLoaded ? pending : null, Colors.orange.shade700),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryItem(String label, int? count, Color color) {
+    return Column(
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade500,
+          ),
+        ),
+        const SizedBox(height: 4),
+        count == null 
+          ? SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.0,
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+              ),
+            )
+          : Text(
+              count.toString(),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+      ],
+    );
+  }
+
   @override
   void initState() {
     super.initState();
     futureProducts = fetchProducts();
+    _loadAdminStatus();
+  }
+
+  Future<void> _loadAdminStatus() async {
+    final storage = await StorageService.getInstance();
+    if (mounted) {
+      setState(() {
+        _isAdmin = storage.userRole.toLowerCase() == 'admin';
+      });
+    }
   }
 
   @override
@@ -424,6 +661,16 @@ class _GetByIdState extends State<GetById> {
       appBar: AppBar(
         title: Text("Product List"),
         backgroundColor: Color(0xFF3B5BDB),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+            onPressed: () {
+              setState(() {
+                futureProducts = fetchProducts();
+              });
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -449,6 +696,7 @@ class _GetByIdState extends State<GetById> {
               ),
             ),
           ),
+          _buildFilterChips(),
           Expanded(
             child: Container(
               decoration: BoxDecoration(
@@ -476,219 +724,492 @@ class _GetByIdState extends State<GetById> {
             }
 
             final products = snapshot.data!;
-            final filteredProducts = products.where((p) {
+            List<dynamic> filteredProducts = products.where((p) {
               final name = (p["name"] ?? "").toString().toLowerCase();
               return name.contains(_searchQuery);
             }).toList();
 
-            if (filteredProducts.isEmpty) {
-              return const Center(
-                child: Text("No Matching Products Found", style: TextStyle(fontSize: 16)),
-              );
+            // Apply filter chip selection
+            if (_selectedFilter == "last") {
+              final sorted = List.from(filteredProducts);
+              sorted.sort((a, b) {
+                final idA = a["id"] is int ? a["id"] : int.tryParse(a["id"].toString()) ?? 0;
+                final idB = b["id"] is int ? b["id"] : int.tryParse(b["id"].toString()) ?? 0;
+                return idB.compareTo(idA);
+              });
+              filteredProducts = sorted.isNotEmpty ? [sorted.first] : [];
+            } else if (_selectedFilter == "received") {
+              filteredProducts = filteredProducts.where((p) {
+                final id = p["id"] is int ? p["id"] : int.tryParse(p["id"].toString()) ?? 0;
+                final msgs = _chatMessages[id] ?? [];
+                if (msgs.isEmpty) return false;
+                final lastMsg = msgs.last;
+                final sender = lastMsg["sender"]?.toString().toLowerCase() ?? "";
+                return sender != "admin" && sender.isNotEmpty;
+              }).toList();
+            } else if (_selectedFilter == "unreplied") {
+              filteredProducts = filteredProducts.where((p) {
+                final id = p["id"] is int ? p["id"] : int.tryParse(p["id"].toString()) ?? 0;
+                final msgs = _chatMessages[id] ?? [];
+                return !msgs.any((m) => m["sender"]?.toString().toLowerCase() == "admin");
+              }).toList();
+            } else if (_selectedFilter == "sent") {
+              filteredProducts = filteredProducts.where((p) {
+                final id = p["id"] is int ? p["id"] : int.tryParse(p["id"].toString()) ?? 0;
+                final msgs = _chatMessages[id] ?? [];
+                return msgs.any((m) => m["sender"]?.toString().toLowerCase() == "admin");
+              }).toList();
             }
 
-            return ListView.builder(
-              padding: const EdgeInsets.all(14),
-              itemCount: filteredProducts.length,
-              itemBuilder: (context, index) {
-                final p = filteredProducts[index];
-                final id = p["id"] is int ? p["id"] : int.tryParse(p["id"].toString()) ?? 0;
-                if (id != 0 && !_unreadChats.containsKey(id) && !_checkingChats.contains(id)) {
-                  _checkChatUnread("product", id);
+            if (_selectedFilter != "last") {
+              filteredProducts.sort((a, b) {
+                final idA = a["id"] is int ? a["id"] : int.tryParse(a["id"].toString()) ?? 0;
+                final idB = b["id"] is int ? b["id"] : int.tryParse(b["id"].toString()) ?? 0;
+                
+                final msgsA = _chatMessages[idA];
+                final msgsB = _chatMessages[idB];
+                
+                bool hasRepliedA = false;
+                bool hasRepliedB = false;
+                if (msgsA != null) {
+                  hasRepliedA = msgsA.any((m) => m["sender"]?.toString().toLowerCase() == "admin");
                 }
-
-                final filePath = (p["file"] ?? p["filePath"] ?? p["imagePath"] ?? p["pdfPath"] ?? p["pdf_path"] ?? p["image_path"] ?? "").toString();
-                final isPdf = filePath.toLowerCase().endsWith('.pdf');
-                final hasValidFile = filePath.isNotEmpty && 
-                    !filePath.startsWith('content:/') && 
-                    !filePath.startsWith('/data/') && 
-                    !filePath.startsWith('/storage/') && 
-                    !filePath.contains('com.example');
-
-                final String imageUrl;
-                if (hasValidFile && !isPdf) {
-                  if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
-                    imageUrl = filePath;
-                  } else {
-                    imageUrl = filePath.startsWith('/') 
-                        ? "https://bulk.srivagroups.in$filePath" 
-                        : "https://bulk.srivagroups.in/$filePath";
-                  }
-                } else {
-                  imageUrl = _getProductImageUrl(p["title"] ?? p["name"] ?? "");
+                if (msgsB != null) {
+                  hasRepliedB = msgsB.any((m) => m["sender"]?.toString().toLowerCase() == "admin");
                 }
+                
+                if (!hasRepliedA && hasRepliedB) return -1;
+                if (hasRepliedA && !hasRepliedB) return 1;
+                
+                return idB.compareTo(idA);
+              });
+            }
 
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  elevation: 4,
-                  shadowColor: const Color(0x223B5BDB),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(16),
-                    onTap: () => _showProductDetails(p),
-                    child: Container(
-                      padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
+            if (filteredProducts.isEmpty) {
+              return Column(
+                children: [
+                  _buildSummaryBanner(filteredProducts),
+                  Expanded(
+                    child: Center(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          // Product Image Header in Card
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Image.network(
-                              imageUrl,
-                              height: 150,
-                              width: double.infinity,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) => Container(
-                                height: 150,
-                                color: Colors.grey.shade100,
-                                child: const Center(
-                                  child: Icon(Icons.image, size: 40, color: Colors.grey),
-                                ),
-                              ),
-                            ),
-                          ),
+                          Icon(Icons.filter_list_off_rounded, size: 48, color: Colors.grey.shade400),
                           const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Wrap(
-                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                  spacing: 8,
-                                  runSpacing: 4,
-                                  children: [
-                                    Text(
-                                      p["title"] ?? p["name"] ?? "Sector Product",
-                                      style: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF0F172A),
-                                      ),
-                                    ),
-                                    if (_unreadChats[p["id"] is int ? p["id"] : int.tryParse(p["id"].toString()) ?? 0] ?? false)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.red.shade100,
-                                          borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(color: Colors.red.shade300, width: 1),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(Icons.chat, size: 12, color: Colors.red.shade800),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              "New Message",
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.red.shade800,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.edit, color: Colors.blue),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => EditPage(data: p),
-                                    ),
-                                  ).then((_) {
-                                    setState(() {
-                                      futureProducts = fetchProducts();
-                                    });
-                                  });
-                                },
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete, color: Colors.red),
-                                onPressed: () {
-                                  confirmDelete(p["id"]);
-                                },
-                              ),
-                            ],
-                          ),
-                          const Divider(height: 16, thickness: 1),
-                          const SizedBox(height: 4),
-
-                          // DATE AND TIME ON THE FRONT (VERY PROMINENT)
-                          _infoRow(
-                            Icons.calendar_today,
-                            "Date: ",
-                            _formatDate(p["date"]),
-                          ),
-                          _infoRow(
-                            Icons.access_time,
-                            "Time: ",
-                            p["time"] ?? "",
-                          ),
-
-                          _infoRow(Icons.person, "Client: ", p["name"] ?? ""),
-                          _infoRow(
-                            Icons.attach_money,
-                            "MRP: ",
-                            (p["mrp"] ?? "").toString(),
-                          ),
-                          _infoRow(
-                            Icons.local_offer,
-                            "Price: ",
-                            (p["price"] ?? "").toString(),
-                          ),
-                          _infoRow(
-                            Icons.format_list_numbered,
-                            "Quantity: ",
-                            (p["quantity"] ?? "").toString(),
-                          ),
-                          _infoRow(
-                            Icons.functions,
-                            "Total: ",
-                            (p["total_Price"] ?? "").toString(),
-                          ),
-                          _infoRow(
-                            Icons.link,
-                            "Website Link: ",
-                            p["current_url"] ?? "",
-                            isLink: true,
-                          ),
-                          
-                          const SizedBox(height: 12),
-                          Center(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.touch_app, size: 16, color: Colors.blue.shade600),
-                                const SizedBox(width: 4),
-                                Text(
-                                  "Tap to view all details",
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.blue.shade600,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
+                          Text(
+                            "No Matching Sectors Found",
+                            style: TextStyle(fontSize: 16, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
                     ),
                   ),
-                );
-              },
+                ],
+              );
+            }
+
+            return Column(
+              children: [
+                _buildSummaryBanner(filteredProducts),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(14),
+                    itemCount: filteredProducts.length,
+                    itemBuilder: (context, index) {
+                      final p = filteredProducts[index];
+                      final id = p["id"] is int ? p["id"] : int.tryParse(p["id"].toString()) ?? 0;
+
+                      final filePath = (p["file"] ?? p["filePath"] ?? p["imagePath"] ?? p["pdfPath"] ?? p["pdf_path"] ?? p["image_path"] ?? "").toString();
+                      final isPdf = filePath.toLowerCase().endsWith('.pdf');
+                      final hasValidFile = filePath.isNotEmpty && 
+                          !filePath.startsWith('content:/') && 
+                          !filePath.startsWith('/data/') && 
+                          !filePath.startsWith('/storage/') && 
+                          !filePath.contains('com.example');
+
+                      final String imageUrl;
+                      if (hasValidFile && !isPdf) {
+                        if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+                          imageUrl = filePath;
+                        } else {
+                          imageUrl = filePath.startsWith('/') 
+                              ? "https://user.jobes24x7.com$filePath" 
+                              : "https://user.jobes24x7.com/$filePath";
+                        }
+                      } else {
+                        imageUrl = "";
+                      }
+
+                      final isExpanded = _expandedIds.contains(id);
+
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        elevation: 4,
+                        shadowColor: const Color(0x223B5BDB),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () {
+                            setState(() {
+                              if (isExpanded) {
+                                _expandedIds.remove(id);
+                              } else {
+                                _expandedIds.add(id);
+                              }
+                            });
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(18),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Wrap(
+                                        crossAxisAlignment: WrapCrossAlignment.center,
+                                        spacing: 8,
+                                        runSpacing: 4,
+                                        children: [
+                                            Text(
+                                            p["title"] ?? p["name"] ?? "Sector Product",
+                                            style: const TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF0F172A),
+                                            ),
+                                          ),
+                                          Builder(
+                                            builder: (context) {
+                                              if (!_isChatStatusLoaded) {
+                                                return Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.grey.shade100,
+                                                    borderRadius: BorderRadius.circular(12),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      SizedBox(
+                                                        width: 10,
+                                                        height: 10,
+                                                        child: CircularProgressIndicator(
+                                                          strokeWidth: 1.5,
+                                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.grey.shade400),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      Text(
+                                                        "Loading...",
+                                                        style: TextStyle(
+                                                          fontSize: 10,
+                                                          fontWeight: FontWeight.bold,
+                                                          color: Colors.grey.shade500,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                );
+                                              }
+                                              final msgs = _chatMessages[id];
+                                              final bool isPending = msgs == null || !msgs.any((m) => m["sender"]?.toString().toLowerCase() == "admin");
+                                              if (isPending) {
+                                                return Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.orange.shade50,
+                                                    borderRadius: BorderRadius.circular(12),
+                                                    border: Border.all(color: Colors.orange.shade300, width: 1),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      Icon(Icons.hourglass_empty_rounded, size: 12, color: Colors.orange.shade800),
+                                                      const SizedBox(width: 4),
+                                                      Text(
+                                                        "Pending Reply",
+                                                        style: TextStyle(
+                                                          fontSize: 10,
+                                                          fontWeight: FontWeight.bold,
+                                                          color: Colors.orange.shade800,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                );
+                                              } else {
+                                                return Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.green.shade50,
+                                                    borderRadius: BorderRadius.circular(12),
+                                                    border: Border.all(color: Colors.green.shade300, width: 1),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      Icon(Icons.check_circle_outline_rounded, size: 12, color: Colors.green.shade800),
+                                                      const SizedBox(width: 4),
+                                                      Text(
+                                                        "Replied",
+                                                        style: TextStyle(
+                                                          fontSize: 10,
+                                                          fontWeight: FontWeight.bold,
+                                                          color: Colors.green.shade800,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                );
+                                              }
+                                            },
+                                          ),
+
+
+                                        ],
+                                      ),
+                                    ),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (_isAdmin) ...
+                                        [
+                                          IconButton(
+                                            icon: const Icon(Icons.edit, color: Colors.blue),
+                                            onPressed: () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) => EditPage(data: p),
+                                                ),
+                                              ).then((_) {
+                                                setState(() {
+                                                  futureProducts = fetchProducts();
+                                                });
+                                              });
+                                            },
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.delete, color: Colors.red),
+                                            onPressed: () {
+                                              confirmDelete(p["id"]);
+                                            },
+                                          ),
+                                        ],
+                                        Icon(
+                                          isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                                const Divider(height: 16, thickness: 1),
+                                const SizedBox(height: 4),
+
+                                // DATE AND TIME ON THE FRONT (VERY PROMINENT)
+                                _infoRow(
+                                  Icons.calendar_today,
+                                  "Date: ",
+                                  _formatDate(p["date"]),
+                                ),
+
+                                if (isExpanded) ...[
+                                  const SizedBox(height: 12),
+                                  // Product Image Header in Card when expanded
+                                  if (imageUrl.isNotEmpty) ...[
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Image.network(
+                                        imageUrl,
+                                        height: 150,
+                                        width: double.infinity,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (context, error, stackTrace) => Container(
+                                          height: 150,
+                                          color: Colors.grey.shade100,
+                                          child: const Center(
+                                            child: Icon(Icons.image, size: 40, color: Colors.grey),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 12),
+                                  _infoRow(Icons.access_time, "Time: ", p["time"] ?? ""),
+                                  _infoRow(Icons.person, "Client: ", p["name"] ?? ""),
+                                  _infoRow(Icons.attach_money, "MRP: ", (p["mrp"] ?? "").toString()),
+                                  _infoRow(Icons.local_offer, "Price: ", (p["price"] ?? "").toString()),
+                                  _infoRow(Icons.format_list_numbered, "Quantity: ", (p["quantity"] ?? "").toString()),
+                                  _infoRow(Icons.functions, "Total: ", (p["total_Price"] ?? "").toString()),
+                                  _infoRow(Icons.link, "Website Link: ", p["current_url"] ?? "", isLink: true),
+                                  const SizedBox(height: 16),
+                                  const Divider(height: 1, thickness: 1),
+                                  const SizedBox(height: 16),
+                                  // Quick Action Buttons Section
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF8FAFC),
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(color: const Color(0xFFEDF2F7)),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Container(
+                                                decoration: BoxDecoration(
+                                                  borderRadius: BorderRadius.circular(12),
+                                                  gradient: LinearGradient(
+                                                    colors: [const Color(0xFF059669), Colors.teal.shade500],
+                                                    begin: Alignment.topLeft,
+                                                    end: Alignment.bottomRight,
+                                                  ),
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color: const Color(0xFF10B981).withOpacity(0.15),
+                                                      blurRadius: 8,
+                                                      offset: const Offset(0, 3),
+                                                    ),
+                                                  ],
+                                                ),
+                                                child: ElevatedButton.icon(
+                                                  icon: const Icon(Icons.phone_in_talk_rounded, color: Colors.white, size: 18),
+                                                  label: const Text("Call Now", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor: Colors.transparent,
+                                                    shadowColor: Colors.transparent,
+                                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                                  ),
+                                                  onPressed: () => _launchCall(p["mobile"] ?? ""),
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Container(
+                                                decoration: BoxDecoration(
+                                                  borderRadius: BorderRadius.circular(12),
+                                                  gradient: const LinearGradient(
+                                                    colors: [Color(0xFF3B5BDB), Color(0xFF4C6EF5)],
+                                                    begin: Alignment.topLeft,
+                                                    end: Alignment.bottomRight,
+                                                  ),
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color: const Color(0xFF3B5BDB).withOpacity(0.15),
+                                                      blurRadius: 8,
+                                                      offset: const Offset(0, 3),
+                                                    ),
+                                                  ],
+                                                ),
+                                                child: ElevatedButton.icon(
+                                                  icon: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
+                                                  label: const Text("Reply / Message", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor: Colors.transparent,
+                                                    shadowColor: Colors.transparent,
+                                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                                  ),
+                                                  onPressed: () {
+                                                    showDialog(
+                                                      context: context,
+                                                      builder: (context) => ReplyFormDialog(
+                                                        referenceId: id,
+                                                        module: "sector",
+                                                        name: p["name"] ?? "Client",
+                                                      company: "",
+                                                        initialSubject: p["title"] ?? "Sector Product",
+                                                        email: p["email"] ?? "",
+                                                        phone: p["mobile"] ?? "",
+                                                        fullData: p,
+                                                      ),
+                                                    ).then((val) {
+                                                      if (val == true) {
+                                                        setState(() {
+                                                          futureProducts = fetchProducts();
+                                                        });
+                                                        _checkSingleChatStatus("sector", id);
+                                                      }
+                                                    });
+                                                  },
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 10),
+                                        SizedBox(
+                                          width: double.infinity,
+                                          child: OutlinedButton.icon(
+                                            icon: const Icon(Icons.history_rounded, color: Color(0xFF3B5BDB), size: 18),
+                                            label: const Text("View Message History", style: TextStyle(color: Color(0xFF3B5BDB), fontWeight: FontWeight.bold, fontSize: 14)),
+                                            style: OutlinedButton.styleFrom(
+                                              side: BorderSide(color: const Color(0xFF3B5BDB).withOpacity(0.4), width: 1.5),
+                                              backgroundColor: Colors.white,
+                                              padding: const EdgeInsets.symmetric(vertical: 12),
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                            ),
+                                            onPressed: () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (context) => ChatScreen(
+                                                    referenceId: id,
+                                                    module: "sector",
+                                                    userName: p["name"] ?? "Client",
+                                                  ),
+                                                ),
+                                              ).then((_) {
+                                                _checkSingleChatStatus("sector", id);
+                                              });
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ] else ...[
+                                  const SizedBox(height: 12),
+                                  Center(
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.touch_app, size: 16, color: Colors.blue.shade600),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          "Tap card to expand details",
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: Colors.blue.shade600,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             );
           },
         ),

@@ -1,4 +1,4 @@
-package com.example.mainlock
+package com.srivagroups.enquiry
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 

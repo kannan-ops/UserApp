@@ -2,9 +2,6 @@ import 'package:flutter/material.dart';
 import '../chartfile/getbulk.dart';
 import '../chartfile/getenq.dart';
 import '../chartfile/getsector.dart';
-import '../chartfile/postbulk.dart';
-import '../chartfile/postenq.dart';
-import '../chartfile/postsector.dart';
 import '../chatnew/admin.dart';
 import '../chatnew/bussiness.dart';
 import '../chatnew/user.dart';
@@ -97,112 +94,43 @@ class _DashState extends State<Dash> {
 
             SizedBox(height: 10),
 
-            ExpansionTile(
-              iconColor: Colors.white,
-              collapsedIconColor: Colors.white,
-              leading: Icon(Icons.inventory, color: Colors.white),
-              title: Text("Bulk Order", style: TextStyle(color: Colors.white)),
-              children: [
-                ListTile(
-                  title: Text(
-                    "Add Bulk Order",
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => BulkOrderPage()),
-                    );
-                  },
-                ),
-                ListTile(
-                  title: Text(
-                    "View Bulk Order",
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => getbuk()),
-                    );
-                  },
-                ),
-              ],
+            ListTile(
+              leading: const Icon(Icons.inventory, color: Colors.white),
+              title: const Text("Bulk Order", style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const getbuk()),
+                );
+              },
             ),
 
-            ExpansionTile(
-              iconColor: Colors.white,
-              collapsedIconColor: Colors.white,
-              leading: Icon(Icons.question_answer, color: Colors.white),
-              title: Text("Enquiry", style: TextStyle(color: Colors.white)),
-              children: [
-                ListTile(
-                  title: Text(
-                    "Add Enquiry Order",
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => EnquiryPage()),
-                    );
-                  },
-                ),
-                ListTile(
-                  title: Text(
-                    "View Enquiry Order",
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => GetEnquiry()),
-                    );
-                  },
-                ),
-              ],
+            ListTile(
+              leading: const Icon(Icons.question_answer, color: Colors.white),
+              title: const Text("Enquiry", style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const GetEnquiry()),
+                );
+              },
             ),
 
-            ExpansionTile(
-              iconColor: Colors.white,
-              collapsedIconColor: Colors.white,
+            ListTile(
               leading: const Icon(Icons.business, color: Colors.white),
               title: const Text(
                 "Sector",
                 style: TextStyle(color: Colors.white),
               ),
-              children: [
-                ListTile(
-                  title: const Text(
-                    "Add Sector",
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => AddGets()),
-                    );
-                  },
-                ),
-                ListTile(
-                  title: const Text(
-                    "View Sector",
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => GetById()),
-                    );
-                  },
-                ),
-              ],
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const GetById()),
+                );
+              },
             ),
 
             ListTile(

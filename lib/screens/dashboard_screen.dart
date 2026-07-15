@@ -9,9 +9,6 @@ import 'package:enquiry_app/providers/riverpod_providers.dart';
 import 'package:enquiry_app/chartfile/getbulk.dart';
 import 'package:enquiry_app/chartfile/getenq.dart';
 import 'package:enquiry_app/chartfile/getsector.dart';
-import 'package:enquiry_app/chartfile/postbulk.dart';
-import 'package:enquiry_app/chartfile/postenq.dart';
-import 'package:enquiry_app/chartfile/postsector.dart';
 import 'package:enquiry_app/chartfile/chat_threads_screen.dart';
 
 import 'package:enquiry_app/screens/profile_screen.dart';
@@ -289,11 +286,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
               SizedBox(height: 10.h),
 
-              ExpansionTile(
-                iconColor: Theme.of(context).colorScheme.primary,
-                collapsedIconColor: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withOpacity(0.7),
+              ListTile(
                 leading: Icon(
                   Icons.inventory_rounded,
                   color: Theme.of(context).colorScheme.primary,
@@ -302,37 +295,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   "Bulk Order",
                   style: GoogleFonts.outfit(fontWeight: FontWeight.w600),
                 ),
-                children: [
-                  ListTile(
-                    title: Text("Add Bulk Order", style: GoogleFonts.outfit()),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const BulkOrderPage(),
-                        ),
-                      );
-                    },
-                  ),
-                  ListTile(
-                    title: Text("View Bulk Order", style: GoogleFonts.outfit()),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const getbuk()),
-                      );
-                    },
-                  ),
-                ],
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const getbuk()),
+                  );
+                },
               ),
 
-              ExpansionTile(
-                iconColor: Theme.of(context).colorScheme.primary,
-                collapsedIconColor: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withOpacity(0.7),
+              ListTile(
                 leading: Icon(
                   Icons.question_answer_rounded,
                   color: Theme.of(context).colorScheme.primary,
@@ -341,41 +313,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   "Enquiry",
                   style: GoogleFonts.outfit(fontWeight: FontWeight.w600),
                 ),
-                children: [
-                  ListTile(
-                    title: Text(
-                      "Add Enquiry Order",
-                      style: GoogleFonts.outfit(),
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const EnquiryPage()),
-                      );
-                    },
-                  ),
-                  ListTile(
-                    title: Text(
-                      "View Enquiry Order",
-                      style: GoogleFonts.outfit(),
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const GetEnquiry()),
-                      );
-                    },
-                  ),
-                ],
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const GetEnquiry()),
+                  );
+                },
               ),
 
-              ExpansionTile(
-                iconColor: Theme.of(context).colorScheme.primary,
-                collapsedIconColor: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withOpacity(0.7),
+              ListTile(
                 leading: Icon(
                   Icons.business_rounded,
                   color: Theme.of(context).colorScheme.primary,
@@ -384,28 +331,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   "Sector",
                   style: GoogleFonts.outfit(fontWeight: FontWeight.w600),
                 ),
-                children: [
-                  ListTile(
-                    title: Text("Add Sector", style: GoogleFonts.outfit()),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const AddGets()),
-                      );
-                    },
-                  ),
-                  ListTile(
-                    title: Text("View Sector", style: GoogleFonts.outfit()),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const GetById()),
-                      );
-                    },
-                  ),
-                ],
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const GetById()),
+                  );
+                },
               ),
 
               const Divider(),
@@ -630,18 +562,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     subtitle: "Process and view bulk shipments",
                     icon: Icons.inventory_rounded,
                     iconColor: const Color(0xFF6366F1),
-                    button1: ElevatedButton.icon(
+                    actionButton: ElevatedButton.icon(
                       onPressed: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(
-                            builder: (_) => const BulkOrderPage(),
-                          ),
+                          MaterialPageRoute(builder: (_) => const getbuk()),
                         );
                       },
-                      icon: const Icon(Icons.add_rounded, size: 16),
+                      icon: const Icon(Icons.list_alt_rounded, size: 16),
                       label: Text(
-                        "Add Order",
+                        "View Bulk Orders",
                         style: GoogleFonts.outfit(
                           fontWeight: FontWeight.w600,
                           fontSize: 13.sp,
@@ -651,34 +581,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         backgroundColor: const Color(0xFF6366F1),
                         foregroundColor: Colors.white,
                         elevation: 0,
-                        padding: EdgeInsets.symmetric(vertical: 12.h),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12.r),
-                        ),
-                      ),
-                    ),
-                    button2: OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const getbuk()),
-                        );
-                      },
-                      icon: const Icon(Icons.list_alt_rounded, size: 16),
-                      label: Text(
-                        "View Orders",
-                        style: GoogleFonts.outfit(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13.sp,
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF6366F1),
-                        side: const BorderSide(
-                          color: Color(0xFF6366F1),
-                          width: 1.5,
-                        ),
-                        padding: EdgeInsets.symmetric(vertical: 12.h),
+                        padding: EdgeInsets.symmetric(vertical: 14.h),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12.r),
                         ),
@@ -694,18 +597,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     subtitle: "Manage service enquiries",
                     icon: Icons.question_answer_rounded,
                     iconColor: const Color(0xFFEC4899),
-                    button1: ElevatedButton.icon(
+                    actionButton: ElevatedButton.icon(
                       onPressed: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(
-                            builder: (_) => const EnquiryPage(),
-                          ),
+                          MaterialPageRoute(builder: (_) => const GetEnquiry()),
                         );
                       },
-                      icon: const Icon(Icons.add_rounded, size: 16),
+                      icon: const Icon(Icons.list_alt_rounded, size: 16),
                       label: Text(
-                        "New Enquiry",
+                        "View Enquiry Log",
                         style: GoogleFonts.outfit(
                           fontWeight: FontWeight.w600,
                           fontSize: 13.sp,
@@ -715,34 +616,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         backgroundColor: const Color(0xFFEC4899),
                         foregroundColor: Colors.white,
                         elevation: 0,
-                        padding: EdgeInsets.symmetric(vertical: 12.h),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12.r),
-                        ),
-                      ),
-                    ),
-                    button2: OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const GetEnquiry()),
-                        );
-                      },
-                      icon: const Icon(Icons.list_alt_rounded, size: 16),
-                      label: Text(
-                        "View Log",
-                        style: GoogleFonts.outfit(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13.sp,
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFFEC4899),
-                        side: const BorderSide(
-                          color: Color(0xFFEC4899),
-                          width: 1.5,
-                        ),
-                        padding: EdgeInsets.symmetric(vertical: 12.h),
+                        padding: EdgeInsets.symmetric(vertical: 14.h),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12.r),
                         ),
@@ -758,16 +632,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     subtitle: "Configure regional operational parameters",
                     icon: Icons.business_rounded,
                     iconColor: const Color(0xFF10B981),
-                    button1: ElevatedButton.icon(
+                    actionButton: ElevatedButton.icon(
                       onPressed: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const AddGets()),
+                          MaterialPageRoute(builder: (_) => const GetById()),
                         );
                       },
-                      icon: const Icon(Icons.add_rounded, size: 16),
+                      icon: const Icon(Icons.list_alt_rounded, size: 16),
                       label: Text(
-                        "Add Sector",
+                        "View Sector Records",
                         style: GoogleFonts.outfit(
                           fontWeight: FontWeight.w600,
                           fontSize: 13.sp,
@@ -777,34 +651,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         backgroundColor: const Color(0xFF10B981),
                         foregroundColor: Colors.white,
                         elevation: 0,
-                        padding: EdgeInsets.symmetric(vertical: 12.h),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12.r),
-                        ),
-                      ),
-                    ),
-                    button2: OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const GetById()),
-                        );
-                      },
-                      icon: const Icon(Icons.list_alt_rounded, size: 16),
-                      label: Text(
-                        "View Sectors",
-                        style: GoogleFonts.outfit(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13.sp,
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF10B981),
-                        side: const BorderSide(
-                          color: Color(0xFF10B981),
-                          width: 1.5,
-                        ),
-                        padding: EdgeInsets.symmetric(vertical: 12.h),
+                        padding: EdgeInsets.symmetric(vertical: 14.h),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12.r),
                         ),
@@ -902,8 +749,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     required String subtitle,
     required IconData icon,
     required Color iconColor,
-    required Widget button1,
-    required Widget button2,
+    required Widget actionButton,
   }) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
@@ -973,13 +819,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ],
           ),
           SizedBox(height: 16.h),
-          Row(
-            children: [
-              Expanded(child: button1),
-              SizedBox(width: 12.w),
-              Expanded(child: button2),
-            ],
-          ),
+          SizedBox(width: double.infinity, child: actionButton),
         ],
       ),
     );

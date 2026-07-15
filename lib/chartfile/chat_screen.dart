@@ -232,11 +232,49 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildMessageBubble(String text, bool isMe, String? timeStr) {
+  Map<String, dynamic> _parseMessage(String rawMessage) {
+    final regExp = RegExp(r'\n\n\[via:(.*?)\]$');
+    final match = regExp.firstMatch(rawMessage);
+    if (match != null) {
+      final channelsStr = match.group(1) ?? "";
+      final channels = channelsStr.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      final cleanMessage = rawMessage.substring(0, match.start);
+      return {
+        "message": cleanMessage,
+        "channels": channels,
+      };
+    }
+    return {
+      "message": rawMessage,
+      "channels": <String>[],
+    };
+  }
+
+  String _formatTime(String? timeStr) {
+    if (timeStr == null || timeStr.isEmpty) return "";
+    try {
+      final dt = DateTime.parse(timeStr).toLocal();
+      int hour = dt.hour;
+      final String period = hour >= 12 ? "PM" : "AM";
+      hour = hour % 12;
+      if (hour == 0) hour = 12;
+      final String hourStr = hour.toString().padLeft(2, '0');
+      final String minuteStr = dt.minute.toString().padLeft(2, '0');
+      return "$hourStr:$minuteStr $period";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  Widget _buildMessageBubble(String rawText, bool isMe, String? timeStr) {
+    final parsed = _parseMessage(rawText);
+    final String text = parsed["message"];
+    final List<dynamic> channels = parsed["channels"];
+
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
+        margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.75,
@@ -251,18 +289,107 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.03),
+              color: Colors.black.withOpacity(0.04),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: Text(
-          text,
-          style: TextStyle(
-            color: isMe ? Colors.white : const Color(0xFF0F172A),
-            fontSize: 15,
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              text,
+              style: TextStyle(
+                color: isMe ? Colors.white : const Color(0xFF0F172A),
+                fontSize: 15,
+                height: 1.35,
+              ),
+            ),
+            if (isMe && channels.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: channels.map<Widget>((channel) {
+                  IconData icon;
+                  Color bgColor;
+                  Color textColor;
+                  final c = channel.toString().toLowerCase();
+                  if (c == 'whatsapp') {
+                    icon = Icons.chat_bubble_rounded;
+                    bgColor = Colors.white.withOpacity(0.2);
+                    textColor = Colors.white;
+                  } else if (c == 'email') {
+                    icon = Icons.email_rounded;
+                    bgColor = Colors.white.withOpacity(0.2);
+                    textColor = Colors.white;
+                  } else if (c == 'sms') {
+                    icon = Icons.sms_rounded;
+                    bgColor = Colors.white.withOpacity(0.2);
+                    textColor = Colors.white;
+                  } else {
+                    icon = Icons.send_rounded;
+                    bgColor = Colors.white.withOpacity(0.2);
+                    textColor = Colors.white;
+                  }
+
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: bgColor,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(icon, size: 10, color: textColor),
+                        const SizedBox(width: 4),
+                        Text(
+                          channel,
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.bottomRight,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isMe && channels.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 6),
+                      child: Text(
+                        "App Chat",
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.white70,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  Text(
+                    _formatTime(timeStr),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: isMe ? Colors.white70 : Colors.grey.shade500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

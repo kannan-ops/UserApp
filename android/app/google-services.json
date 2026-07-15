@@ -148,6 +148,42 @@
           ]
         }
       }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:316605580809:android:56b11519cc6cbc9d771ad8",
+        "android_client_info": {
+          "package_name": "com.srivagroups.enquiry"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "316605580809-m7cp3810um66qnpt3eh2bmvhvn8k937m.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBwFMVnYor2oun8xlu1QkcvM6urIDdR3WE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "316605580809-m7cp3810um66qnpt3eh2bmvhvn8k937m.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "316605580809-2mgo3hg6n4tkakasq6v2rv6fkp2osam2.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.taskwe"
+              }
+            }
+          ]
+        }
+      }
     }
   ],
   "configuration_version": "1"
