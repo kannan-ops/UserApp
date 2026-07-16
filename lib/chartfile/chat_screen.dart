@@ -187,8 +187,8 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
       body: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFFF8FAFC),
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
         ),
         child: Column(
           children: [
@@ -280,7 +280,7 @@ class _ChatScreenState extends State<ChatScreen> {
           maxWidth: MediaQuery.of(context).size.width * 0.75,
         ),
         decoration: BoxDecoration(
-          color: isMe ? const Color(0xFF3B5BDB) : Colors.white,
+          color: isMe ? const Color(0xFF3B5BDB) : Theme.of(context).cardColor,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
             topRight: const Radius.circular(16),
@@ -302,7 +302,7 @@ class _ChatScreenState extends State<ChatScreen> {
             Text(
               text,
               style: TextStyle(
-                color: isMe ? Colors.white : const Color(0xFF0F172A),
+                color: isMe ? Colors.white : Theme.of(context).colorScheme.onSurface,
                 fontSize: 15,
                 height: 1.35,
               ),
@@ -399,7 +399,7 @@ class _ChatScreenState extends State<ChatScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
@@ -414,15 +414,19 @@ class _ChatScreenState extends State<ChatScreen> {
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF1F5F9),
+                  color: Theme.of(context).colorScheme.brightness == Brightness.dark
+                      ? const Color(0xFF1E293B)
+                      : const Color(0xFFF1F5F9),
                   borderRadius: BorderRadius.circular(24),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: TextField(
                   controller: _messageController,
                   maxLines: null,
-                  decoration: const InputDecoration(
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                  decoration: InputDecoration(
                     hintText: "Type a message...",
+                    hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
                     border: InputBorder.none,
                   ),
                 ),

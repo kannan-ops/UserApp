@@ -29,6 +29,13 @@ class _getbukState extends State<getbuk> {
   final Map<int, List<dynamic>> _chatMessages = {};
   bool _isChatStatusLoaded = false;
 
+  final List<dynamic> _orders = [];
+  int _currentPage = 1;
+  final int _limit = 20;
+  bool _hasMore = true;
+  bool _isLoadingMore = false;
+  final ScrollController _scrollController = ScrollController();
+
   Future<void> _fetchAllChatStatuses(List<dynamic> items, String module) async {
     Map<int, List<dynamic>> tempChatMessages = {};
     Map<int, bool> tempUnreadChats = {};
@@ -144,17 +151,57 @@ class _getbukState extends State<getbuk> {
   }
 
 
-   Future<List<dynamic>> fetchOrders() async {
+  List<dynamic> _mapOrders(List<dynamic> rawList) {
+    return rawList.map((x) {
+      if (x is Map) {
+        final item = Map<String, dynamic>.from(x);
+        item['bulkOrderID'] ??= item['id'] ?? item['bulk_order_id'];
+        item['specialInstructions'] ??= item['special_instructions'];
+        item['company'] ??= item['company_name'];
+        item['product'] ??= item['product_name'];
+        item['deliveryDate'] ??= item['preferred_delivery_date'];
+        item['submittedAt'] ??= item['submitted_at'];
+        item['pdfPath'] ??= item['pdf_path'] ?? item['bulk_order_pdf'] ?? item['bulk_order_ref_file'];
+
+        final dynamic rawMethods = item['contact_methods'];
+        if (rawMethods == null || rawMethods.toString().trim().isEmpty) {
+          item['contactType'] = "Callback, SMS, WhatsApp, Mail";
+        } else {
+          item['contactType'] = rawMethods
+              .toString()
+              .split(',')
+              .map((s) => s.trim())
+              .where((s) => s.isNotEmpty)
+              .join(', ');
+        }
+
+        final methodsLower = item['contactType'].toLowerCase();
+        item['contact_Callback'] = methodsLower.contains('callback') || methodsLower.contains('call');
+        item['contact_SMS'] = methodsLower.contains('sms');
+        item['contact_WhatsApp'] = methodsLower.contains('whatsapp') || methodsLower.contains('wa');
+        item['contact_Mail'] = methodsLower.contains('mail');
+        item['contact_callback'] = item['contact_Callback'];
+        item['contact_sms'] = item['contact_SMS'];
+        item['contact_whatsapp'] = item['contact_WhatsApp'];
+        item['contact_mail'] = item['contact_Mail'];
+
+        item['bulkOrderRefFile'] ??= item['pdfPath'];
+        return item;
+      }
+      return x;
+    }).toList();
+  }
+
+  Future<List<dynamic>> fetchOrders() async {
     _isChatStatusLoaded = false;
-    List<dynamic> allOrders = [];
-    int currentPage = 1;
-    const int limit = 1000000;
-    bool hasMore = true;
+    _orders.clear();
+    _currentPage = 1;
+    _hasMore = true;
+    _isLoadingMore = false;
 
-    while (hasMore) {
-      final url = "https://bulk.srivagroups.in/api/bulk-orders?limit=$limit&page=$currentPage";
+    final url = "https://bulk.srivagroups.in/api/bulk-orders?limit=$_limit&page=$_currentPage";
+    try {
       final res = await ApiDebugLogger.httpClient.get(Uri.parse(url));
-
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
         List<dynamic> rawList = [];
@@ -184,63 +231,86 @@ class _getbukState extends State<getbuk> {
         }
 
         if (rawList.isEmpty) {
-          hasMore = false;
+          _hasMore = false;
         } else {
-          allOrders.addAll(rawList);
-          if (total > 0 && allOrders.length >= total) {
-            hasMore = false;
-          } else {
-            currentPage++;
-            if (currentPage > 100) {
-              hasMore = false;
+          final mapped = _mapOrders(rawList);
+          _orders.addAll(mapped);
+          _currentPage++;
+          if (total > 0 && _orders.length >= total) {
+            _hasMore = false;
+          }
+          _fetchAllChatStatuses(mapped, "bulk_order");
+        }
+      } else {
+        _hasMore = false;
+      }
+    } catch (_) {
+      _hasMore = false;
+    }
+    return _orders;
+  }
+
+  Future<void> _loadNextPage() async {
+    if (!_hasMore || _isLoadingMore) return;
+    _isLoadingMore = true;
+    
+    final url = "https://bulk.srivagroups.in/api/bulk-orders?limit=$_limit&page=$_currentPage";
+    try {
+      final res = await ApiDebugLogger.httpClient.get(Uri.parse(url));
+      if (res.statusCode == 200) {
+        final decoded = jsonDecode(res.body);
+        List<dynamic> rawList = [];
+        int total = 0;
+
+        if (decoded is Map) {
+          if (decoded.containsKey('total')) {
+            total = decoded['total'] is int 
+                ? decoded['total'] 
+                : int.tryParse(decoded['total'].toString()) ?? 0;
+          }
+          if (decoded.containsKey('data')) {
+            final dataVal = decoded['data'];
+            if (dataVal is List) {
+              rawList = dataVal;
+            } else if (dataVal is Map) {
+              if (dataVal.containsKey('data')) {
+                final nestedDataVal = dataVal['data'];
+                if (nestedDataVal is List) {
+                  rawList = nestedDataVal;
+                }
+              }
             }
+          }
+        } else if (decoded is List) {
+          rawList = decoded;
+        }
+
+        if (rawList.isEmpty) {
+          _hasMore = false;
+        } else {
+          final mapped = _mapOrders(rawList);
+          _orders.addAll(mapped);
+          _currentPage++;
+          if (total > 0 && _orders.length >= total) {
+            _hasMore = false;
+          }
+          
+          _fetchAllChatStatuses(mapped, "bulk_order");
+          
+          if (mounted) {
+            setState(() {
+              futureOrders = Future.value(List.from(_orders));
+            });
           }
         }
       } else {
-        hasMore = false;
+        _hasMore = false;
       }
+    } catch (_) {
+      _hasMore = false;
+    } finally {
+      _isLoadingMore = false;
     }
-      final list = allOrders.map((x) {
-        if (x is Map) {
-          final item = Map<String, dynamic>.from(x);
-          item['bulkOrderID'] ??= item['id'] ?? item['bulk_order_id'];
-          item['specialInstructions'] ??= item['special_instructions'];
-          item['company'] ??= item['company_name'];
-          item['product'] ??= item['product_name'];
-          item['deliveryDate'] ??= item['preferred_delivery_date'];
-          item['submittedAt'] ??= item['submitted_at'];
-          item['pdfPath'] ??= item['pdf_path'] ?? item['bulk_order_pdf'] ?? item['bulk_order_ref_file'];
-
-          final dynamic rawMethods = item['contact_methods'];
-          if (rawMethods == null || rawMethods.toString().trim().isEmpty) {
-            item['contactType'] = "Callback, SMS, WhatsApp, Mail";
-          } else {
-            item['contactType'] = rawMethods
-                .toString()
-                .split(',')
-                .map((s) => s.trim())
-                .where((s) => s.isNotEmpty)
-                .join(', ');
-          }
-
-          final methodsLower = item['contactType'].toLowerCase();
-          item['contact_Callback'] = methodsLower.contains('callback') || methodsLower.contains('call');
-          item['contact_SMS'] = methodsLower.contains('sms');
-          item['contact_WhatsApp'] = methodsLower.contains('whatsapp') || methodsLower.contains('wa');
-          item['contact_Mail'] = methodsLower.contains('mail');
-          item['contact_callback'] = item['contact_Callback'];
-          item['contact_sms'] = item['contact_SMS'];
-          item['contact_whatsapp'] = item['contact_WhatsApp'];
-          item['contact_mail'] = item['contact_Mail'];
-
-          item['bulkOrderRefFile'] ??= item['pdfPath'];
-          return item;
-        }
-        return x;
-      }).toList();
-
-      _fetchAllChatStatuses(list, "bulk_order");
-      return list;
   }
 
   Future<void> deleteOrder(int id) async {
@@ -431,24 +501,27 @@ class _getbukState extends State<getbuk> {
                             },
                           ),
 
-                          _infoRow(Icons.person, "Client: ", o["name"] ?? ""),
-                          _infoRow(Icons.phone, "Phone: ", o["mobile"] ?? ""),
-                          _infoRow(Icons.email, "Email: ", o["email"] ?? ""),
-                          _infoRow(Icons.business, "Company: ", o["company"] ?? ""),
-                          _infoRow(
-                            Icons.shopping_bag,
-                            "Product: ",
-                            o["product_title"] != null && o["product_title"].toString().isNotEmpty
-                                ? "${o["product"]} (${o["product_title"]})"
-                                : (o["product"] ?? ""),
-                          ),
-                          _infoRow(Icons.format_list_numbered, "Quantity: ", (o["quantity"] ?? "").toString()),
-                          _infoRow(Icons.calendar_month, "Delivery Date: ", o["deliveryDate"] ?? ""),
-                          if (o["contactType"] != null && o["contactType"].toString().trim().isNotEmpty)
-                            _infoRow(Icons.contact_mail, "Preferred Contact: ", o["contactType"] ?? ""),
-                          _infoRow(Icons.link, "Website Link: ", o["link"] ?? "", isLink: true),
-                          _infoRow(Icons.link, "Current URL: ", o["current_url"] ?? "", isLink: true),
-                          _infoRow(Icons.calendar_today, "Submitted At: ", _formatDate(o["submittedAt"])),
+                          _infoRow(Icons.person, "Client: ", _val(o["name"])),
+                          _infoRow(Icons.production_quantity_limits, "Product Name: ", _val(o["product_name"] ?? o["product"])),
+                          _infoRow(Icons.shopping_bag, "Product Title: ", _val(o["product_title"])),
+                          _infoRow(Icons.phone, "Phone: ", _val(o["mobile"])),
+                          _infoRow(Icons.email, "Email: ", _val(o["email"])),
+                          _infoRow(Icons.business, "Company: ", _val(o["company_name"] ?? o["company"])),
+                          _infoRow(Icons.format_list_numbered, "Quantity: ", _val(o["quantity"])),
+                          _infoRow(Icons.calendar_month, "Delivery Date: ", _val(o["preferred_delivery_date"] ?? o["deliveryDate"])),
+                          _infoRow(Icons.contact_mail, "Preferred Contact: ", _val(o["contactType"])),
+                          _infoRow(Icons.link, "Website Link: ", _val(o["link"]), isLink: true),
+                          _infoRow(Icons.link, "Current URL: ", _val(o["current_url"]), isLink: true),
+                          _infoRow(Icons.info_outline, "ID: ", _val(o["id"])),
+                          _infoRow(Icons.web, "Website Name: ", _val(o["website_name"])),
+                          _infoRow(Icons.person_pin, "User ID: ", _val(o["user_id"])),
+                          _infoRow(Icons.account_tree_outlined, "Parent Site ID: ", _val(o["parent_site_id"])),
+                          _infoRow(Icons.lan_outlined, "Subdomain Site ID: ", _val(o["subdomain_site_id"])),
+                          _infoRow(Icons.category, "Category: ", _val(o["category"])),
+                          _infoRow(Icons.contact_mail, "Contact Methods: ", _val(o["contact_methods"])),
+                          _infoRow(Icons.notes, "Special Instructions: ", _val(o["special_instructions"] ?? o["specialInstructions"])),
+                          _infoRow(Icons.picture_as_pdf, "PDF Path: ", _val(o["pdf_path"] ?? o["pdfPath"])),
+                          _infoRow(Icons.calendar_today, "Submitted At: ", _val(_formatDate(o["submitted_at"] ?? o["submittedAt"]))),
 
                           if (o["specialInstructions"] != null && o["specialInstructions"].toString().isNotEmpty) ...[
                             const SizedBox(height: 12),
@@ -696,8 +769,21 @@ class _getbukState extends State<getbuk> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_scrollListener);
     futureOrders = fetchOrders();
     _loadAdminStatus();
+  }
+
+  void _scrollListener() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      _loadNextPage();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadAdminStatus() async {
@@ -730,8 +816,9 @@ class _getbukState extends State<getbuk> {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            color: Colors.white,
+            color: Theme.of(context).colorScheme.surface,
             child: TextField(
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
               onChanged: (val) {
                 setState(() {
                   _searchQuery = val.trim().toLowerCase();
@@ -739,9 +826,12 @@ class _getbukState extends State<getbuk> {
               },
               decoration: InputDecoration(
                 hintText: "Search by client name or product...",
-                prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+                prefixIcon: Icon(Icons.search, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
                 filled: true,
-                fillColor: const Color(0xFFF1F5F9),
+                fillColor: Theme.of(context).colorScheme.brightness == Brightness.dark
+                    ? const Color(0xFF1E293B)
+                    : const Color(0xFFF1F5F9),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -868,6 +958,7 @@ class _getbukState extends State<getbuk> {
                 _buildSummaryBanner(filteredOrders),
                 Expanded(
                   child: ListView.builder(
+                    controller: _scrollController,
                     padding: const EdgeInsets.all(14),
                     itemCount: filteredOrders.length,
                     itemBuilder: (context, index) {
@@ -1136,16 +1227,27 @@ class _getbukState extends State<getbuk> {
                                      pdfWidget,
                                      const SizedBox(height: 12),
                                    ],
-                                   _infoRow(Icons.person, "Client: ", o["name"] ?? ""),
-                                  _infoRow(Icons.phone, "Phone: ", o["mobile"] ?? ""),
-                                  _infoRow(Icons.email, "Email: ", o["email"] ?? ""),
-                                  _infoRow(Icons.business, "Company: ", o["company"] ?? ""),
-                                  _infoRow(Icons.format_list_numbered, "Quantity: ", (o["quantity"] ?? "").toString()),
-                                  _infoRow(Icons.calendar_month, "Delivery Date: ", o["deliveryDate"] ?? ""),
-                                  if (o["contactType"] != null && o["contactType"].toString().trim().isNotEmpty)
-                                    _infoRow(Icons.contact_mail, "Preferred Contact: ", o["contactType"] ?? ""),
-                                  _infoRow(Icons.link, "Website Link: ", o["link"] ?? "", isLink: true),
-                                  _infoRow(Icons.link, "Current URL: ", o["current_url"] ?? "", isLink: true),
+                                   _infoRow(Icons.person, "Client: ", _val(o["name"])),
+                                    _infoRow(Icons.production_quantity_limits, "Product Name: ", _val(o["product_name"] ?? o["product"])),
+                                    _infoRow(Icons.shopping_bag, "Product Title: ", _val(o["product_title"])),
+                                    _infoRow(Icons.phone, "Phone: ", _val(o["mobile"])),
+                                    _infoRow(Icons.email, "Email: ", _val(o["email"])),
+                                    _infoRow(Icons.business, "Company: ", _val(o["company_name"] ?? o["company"])),
+                                    _infoRow(Icons.format_list_numbered, "Quantity: ", _val(o["quantity"])),
+                                    _infoRow(Icons.calendar_month, "Delivery Date: ", _val(o["preferred_delivery_date"] ?? o["deliveryDate"])),
+                                    _infoRow(Icons.contact_mail, "Preferred Contact: ", _val(o["contactType"])),
+                                    _infoRow(Icons.link, "Website Link: ", _val(o["link"]), isLink: true),
+                                    _infoRow(Icons.link, "Current URL: ", _val(o["current_url"]), isLink: true),
+                                    _infoRow(Icons.info_outline, "ID: ", _val(o["id"])),
+                                    _infoRow(Icons.web, "Website Name: ", _val(o["website_name"])),
+                                    _infoRow(Icons.person_pin, "User ID: ", _val(o["user_id"])),
+                                    _infoRow(Icons.account_tree_outlined, "Parent Site ID: ", _val(o["parent_site_id"])),
+                                    _infoRow(Icons.lan_outlined, "Subdomain Site ID: ", _val(o["subdomain_site_id"])),
+                                    _infoRow(Icons.category, "Category: ", _val(o["category"])),
+                                    _infoRow(Icons.contact_mail, "Contact Methods: ", _val(o["contact_methods"])),
+                                    _infoRow(Icons.notes, "Special Instructions: ", _val(o["special_instructions"] ?? o["specialInstructions"])),
+                                    _infoRow(Icons.picture_as_pdf, "PDF Path: ", _val(o["pdf_path"] ?? o["pdfPath"])),
+                                    _infoRow(Icons.calendar_today, "Submitted At: ", _val(_formatDate(o["submitted_at"] ?? o["submittedAt"]))),
                                   if (o["specialInstructions"] != null && o["specialInstructions"].toString().isNotEmpty) ...[
                                     const SizedBox(height: 12),
                                     Container(
@@ -1447,8 +1549,13 @@ class _getbukState extends State<getbuk> {
     }
   }
 
+  String _val(dynamic v) {
+    if (v == null || v.toString().trim().isEmpty || v.toString().trim().toLowerCase() == "null") return "-";
+    return v.toString();
+  }
+
   Widget _infoRow(IconData icon, String label, String value, {bool isLink = false}) {
-    if (value.trim().isEmpty) return const SizedBox.shrink();
+    final String displayVal = (value.trim().isEmpty || value.trim().toLowerCase() == "null") ? "-" : value;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
@@ -1472,13 +1579,13 @@ class _getbukState extends State<getbuk> {
           Padding(
             padding: const EdgeInsets.only(left: 26),
             child: GestureDetector(
-              onTap: isLink ? () => _launchWebUrl(value) : null,
+              onTap: (isLink && displayVal != "-") ? () => _launchWebUrl(displayVal) : null,
               child: Text(
-                value,
+                displayVal,
                 style: TextStyle(
                   fontSize: 16,
-                  color: isLink ? Colors.blue.shade700 : const Color(0xFF0F172A),
-                  decoration: isLink ? TextDecoration.underline : TextDecoration.none,
+                  color: (isLink && displayVal != "-") ? Colors.blue.shade700 : const Color(0xFF0F172A),
+                  decoration: (isLink && displayVal != "-") ? TextDecoration.underline : TextDecoration.none,
                 ),
               ),
             ),

@@ -27,6 +27,14 @@ class _GetEnquiryState extends State<GetEnquiry> {
   final Map<int, List<dynamic>> _chatMessages = {};
   bool _isChatStatusLoaded = false;
 
+  final List<dynamic> _enquiries = [];
+  List<dynamic> _allEnquiries = [];
+  int _currentPage = 1;
+  final int _limit = 20;
+  bool _hasMore = true;
+  bool _isLoadingMore = false;
+  final ScrollController _scrollController = ScrollController();
+
   Future<void> _fetchAllChatStatuses(List<dynamic> items, String module) async {
     Map<int, List<dynamic>> tempChatMessages = {};
     Map<int, bool> tempUnreadChats = {};
@@ -143,28 +151,59 @@ class _GetEnquiryState extends State<GetEnquiry> {
 
   final String apiUrl = "https://bulk.srivagroups.in/api/enquiries?limit=1000000";
 
+  List<dynamic> _mapEnquiries(List<dynamic> rawList) {
+    return rawList.map((x) {
+      if (x is Map) {
+        final item = Map<String, dynamic>.from(x);
+
+        final dynamic rawMethods = item['contact_methods'];
+        if (rawMethods == null || rawMethods.toString().trim().isEmpty) {
+          item['contactType'] = "Callback, SMS, WhatsApp, Mail";
+        } else {
+          item['contactType'] = rawMethods
+              .toString()
+              .split(',')
+              .map((s) => s.trim())
+              .where((s) => s.isNotEmpty)
+              .join(', ');
+        }
+
+        final methodsLower = item['contactType'].toLowerCase();
+        item['contact_callback'] = methodsLower.contains('callback') || methodsLower.contains('call');
+        item['contact_sms'] = methodsLower.contains('sms');
+        item['contact_whatsapp'] = methodsLower.contains('whatsapp') || methodsLower.contains('wa');
+        item['contact_mail'] = methodsLower.contains('mail');
+        item['contact_Callback'] = item['contact_callback'];
+        item['contact_SMS'] = item['contact_sms'];
+        item['contact_WhatsApp'] = item['contact_whatsapp'];
+        item['contact_Mail'] = item['contact_mail'];
+
+        item['imagePath'] ??= item['image_path'];
+        item['pdfPath'] ??= item['pdf_path'];
+        item['company'] ??= item['company_name'];
+        item['createdDate'] ??= item['submitted_at'] ?? item['created_date'] ?? item['created_at'];
+        return item;
+      }
+      return x;
+    }).toList();
+  }
+
   Future<List<dynamic>> fetchEnquiries() async {
     _isChatStatusLoaded = false;
-    List<dynamic> allEnquiries = [];
-    int currentPage = 1;
-    const int limit = 1000000;
-    bool hasMore = true;
+    _enquiries.clear();
+    _allEnquiries.clear();
+    _currentPage = 1;
+    _hasMore = true;
+    _isLoadingMore = false;
 
-    while (hasMore) {
-      final url = "https://bulk.srivagroups.in/api/enquiries?limit=$limit&page=$currentPage";
+    final url = "https://bulk.srivagroups.in/api/enquiries?limit=1000000";
+    try {
       final res = await ApiDebugLogger.httpClient.get(Uri.parse(url));
-
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
         List<dynamic> rawList = [];
-        int total = 0;
 
         if (decoded is Map) {
-          if (decoded.containsKey('total')) {
-            total = decoded['total'] is int 
-                ? decoded['total'] 
-                : int.tryParse(decoded['total'].toString()) ?? 0;
-          }
           if (decoded.containsKey('data')) {
             final dataVal = decoded['data'];
             if (dataVal is List) {
@@ -183,60 +222,56 @@ class _GetEnquiryState extends State<GetEnquiry> {
         }
 
         if (rawList.isEmpty) {
-          hasMore = false;
+          _hasMore = false;
         } else {
-          allEnquiries.addAll(rawList);
-          if (total > 0 && allEnquiries.length >= total) {
-            hasMore = false;
-          } else {
-            currentPage++;
-            if (currentPage > 100) {
-              hasMore = false;
-            }
-          }
+          final mapped = _mapEnquiries(rawList);
+          _allEnquiries = mapped;
+          
+          final initialCount = _limit < _allEnquiries.length ? _limit : _allEnquiries.length;
+          final chunk = _allEnquiries.sublist(0, initialCount);
+          _enquiries.addAll(chunk);
+          _hasMore = _enquiries.length < _allEnquiries.length;
+          
+          _fetchAllChatStatuses(chunk, "enquiry");
         }
       } else {
-        hasMore = false;
+        _hasMore = false;
       }
+    } catch (_) {
+      _hasMore = false;
     }
+    return _enquiries;
+  }
 
-      final list = allEnquiries.map((x) {
-        if (x is Map) {
-          final item = Map<String, dynamic>.from(x);
+  Future<void> _loadNextPage() async {
+    if (!_hasMore || _isLoadingMore) return;
+    _isLoadingMore = true;
 
-          final dynamic rawMethods = item['contact_methods'];
-          if (rawMethods == null || rawMethods.toString().trim().isEmpty) {
-            item['contactType'] = "Callback, SMS, WhatsApp, Mail";
-          } else {
-            item['contactType'] = rawMethods
-                .toString()
-                .split(',')
-                .map((s) => s.trim())
-                .where((s) => s.isNotEmpty)
-                .join(', ');
-          }
-
-          final methodsLower = item['contactType'].toLowerCase();
-          item['contact_callback'] = methodsLower.contains('callback') || methodsLower.contains('call');
-          item['contact_sms'] = methodsLower.contains('sms');
-          item['contact_whatsapp'] = methodsLower.contains('whatsapp') || methodsLower.contains('wa');
-          item['contact_mail'] = methodsLower.contains('mail');
-          item['contact_Callback'] = item['contact_callback'];
-          item['contact_SMS'] = item['contact_sms'];
-          item['contact_WhatsApp'] = item['contact_whatsapp'];
-          item['contact_Mail'] = item['contact_mail'];
-
-          item['imagePath'] ??= item['image_path'];
-          item['pdfPath'] ??= item['pdf_path'];
-          item['company'] ??= item['company_name'];
-          item['createdDate'] ??= item['submitted_at'] ?? item['created_date'] ?? item['created_at'];
-          return item;
+    try {
+      final startIndex = _enquiries.length;
+      if (startIndex < _allEnquiries.length) {
+        final nextCount = startIndex + _limit;
+        final endIndex = nextCount < _allEnquiries.length ? nextCount : _allEnquiries.length;
+        final chunk = _allEnquiries.sublist(startIndex, endIndex);
+        
+        _enquiries.addAll(chunk);
+        _hasMore = _enquiries.length < _allEnquiries.length;
+        
+        _fetchAllChatStatuses(chunk, "enquiry");
+        
+        if (mounted) {
+          setState(() {
+            futureEnquiries = Future.value(List.from(_enquiries));
+          });
         }
-        return x;
-      }).toList();
-
-      _fetchAllChatStatuses(list, "enquiry");
-      return list;
+      } else {
+        _hasMore = false;
+      }
+    } catch (_) {
+      _hasMore = false;
+    } finally {
+      _isLoadingMore = false;
+    }
   }
 
   Future<void> deleteEnquiry(int id) async {
@@ -446,24 +481,28 @@ class _GetEnquiryState extends State<GetEnquiry> {
                             },
                           ),
 
-                          if (e["product_title"] != null && e["product_title"].toString().isNotEmpty)
-                            _infoRow(Icons.shopping_bag, "Product: ", e["product_title"]),
-                          _infoRow(Icons.person, "Client: ", e["name"] ?? ""),
-                          _infoRow(Icons.phone, "Phone: ", e["mobile"] ?? ""),
-                          _infoRow(Icons.email, "Email: ", e["email"] ?? ""),
-                          _infoRow(Icons.business, "Company: ", e["company"] ?? ""),
-                          _infoRow(
-                            Icons.subject,
-                            "Subject: ",
-                            e["other_subject"] != null && e["other_subject"].toString().isNotEmpty
-                                ? "${e["subject"]} (${e["other_subject"]})"
-                                : (e["subject"] ?? ""),
-                          ),
-                          if (e["contactType"] != null && e["contactType"].toString().trim().isNotEmpty)
-                            _infoRow(Icons.contact_mail, "Contact: ", e["contactType"] ?? ""),
-                          _infoRow(Icons.link, "Website Link: ", e["link"] ?? "", isLink: true),
-                          _infoRow(Icons.link, "Current URL: ", e["current_url"] ?? "", isLink: true),
-                          _infoRow(Icons.calendar_today, "Submitted At: ", _formatDate(e["createdDate"])),
+                          _infoRow(Icons.shopping_bag, "Product: ", _val(e["product_title"])),
+                          _infoRow(Icons.person, "Client: ", _val(e["name"])),
+                          _infoRow(Icons.shopping_bag, "Product Title: ", _val(e["product_title"])),
+                          _infoRow(Icons.subject, "Subject: ", _val(e["subject"])),
+                          _infoRow(Icons.subject, "Other Subject: ", _val(e["other_subject"])),
+                          _infoRow(Icons.phone, "Phone: ", _val(e["mobile"])),
+                          _infoRow(Icons.email, "Email: ", _val(e["email"])),
+                          _infoRow(Icons.business, "Company: ", _val(e["company_name"] ?? e["company"])),
+                          _infoRow(Icons.message, "Enquiry Message: ", _val(e["message"] ?? e["comments"])),
+                          _infoRow(Icons.contact_mail, "Preferred Contact: ", _val(e["contactType"])),
+                          _infoRow(Icons.link, "Website Link: ", _val(e["link"]), isLink: true),
+                          _infoRow(Icons.link, "Current URL: ", _val(e["current_url"]), isLink: true),
+                          _infoRow(Icons.info_outline, "ID: ", _val(e["id"])),
+                          _infoRow(Icons.web, "Website Name: ", _val(e["website_name"])),
+                          _infoRow(Icons.person_pin, "User ID: ", _val(e["user_id"])),
+                          _infoRow(Icons.account_tree_outlined, "Parent Site ID: ", _val(e["parent_site_id"])),
+                          _infoRow(Icons.lan_outlined, "Subdomain Site ID: ", _val(e["subdomain_site_id"])),
+                          _infoRow(Icons.category, "Category: ", _val(e["category"])),
+                          _infoRow(Icons.contact_mail, "Contact Methods: ", _val(e["contact_methods"])),
+                          _infoRow(Icons.image, "Image Path: ", _val(e["image_path"] ?? e["imagePath"])),
+                          _infoRow(Icons.picture_as_pdf, "PDF Path: ", _val(e["pdf_path"] ?? e["pdfPath"])),
+                          _infoRow(Icons.calendar_today, "Submitted At: ", _val(_formatDate(e["submitted_at"] ?? e["submittedAt"] ?? e["createdDate"]))),
                           
                           if (e["comments"] != null && e["comments"].toString().isNotEmpty) ...[
                             const SizedBox(height: 12),
@@ -711,8 +750,21 @@ class _GetEnquiryState extends State<GetEnquiry> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_scrollListener);
     futureEnquiries = fetchEnquiries();
     _loadAdminStatus();
+  }
+
+  void _scrollListener() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      _loadNextPage();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadAdminStatus() async {
@@ -745,8 +797,9 @@ class _GetEnquiryState extends State<GetEnquiry> {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            color: Colors.white,
+            color: Theme.of(context).colorScheme.surface,
             child: TextField(
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
               onChanged: (val) {
                 setState(() {
                   _searchQuery = val.trim().toLowerCase();
@@ -754,9 +807,12 @@ class _GetEnquiryState extends State<GetEnquiry> {
               },
               decoration: InputDecoration(
                 hintText: "Search by client name or subject...",
-                prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+                prefixIcon: Icon(Icons.search, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
                 filled: true,
-                fillColor: const Color(0xFFF1F5F9),
+                fillColor: Theme.of(context).colorScheme.brightness == Brightness.dark
+                    ? const Color(0xFF1E293B)
+                    : const Color(0xFFF1F5F9),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -886,6 +942,7 @@ class _GetEnquiryState extends State<GetEnquiry> {
                 _buildSummaryBanner(filteredEnquiries),
                 Expanded(
                   child: ListView.builder(
+                    controller: _scrollController,
                     padding: const EdgeInsets.all(14),
                     itemCount: filteredEnquiries.length,
                     itemBuilder: (context, index) {
@@ -938,7 +995,7 @@ class _GetEnquiryState extends State<GetEnquiry> {
                           padding: const EdgeInsets.only(bottom: 12),
                           child: SizedBox(
                             width: double.infinity,
-                            child: ElevatedButton.icon(
+                               child: ElevatedButton.icon(
                               onPressed: () => _launchWebUrl(pdfUrl),
                               icon: const Icon(Icons.picture_as_pdf, color: Colors.white),
                               label: Text(
@@ -1166,15 +1223,27 @@ class _GetEnquiryState extends State<GetEnquiry> {
                                      pdfWidget,
                                      const SizedBox(height: 12),
                                    ],
-                                   _infoRow(Icons.person, "Client: ", e["name"] ?? ""),
-                                  _infoRow(Icons.phone, "Phone: ", e["mobile"] ?? ""),
-                                  _infoRow(Icons.email, "Email: ", e["email"] ?? ""),
-                                  _infoRow(Icons.business, "Company: ", e["company"] ?? ""),
-                                  _infoRow(Icons.message, "Enquiry Message: ", e["message"] ?? ""),
-                                  if (e["contactType"] != null && e["contactType"].toString().trim().isNotEmpty)
-                                    _infoRow(Icons.contact_mail, "Preferred Contact: ", e["contactType"] ?? ""),
-                                  _infoRow(Icons.link, "Website Link: ", e["link"] ?? "", isLink: true),
-                                  _infoRow(Icons.link, "Current URL: ", e["current_url"] ?? "", isLink: true),
+                                   _infoRow(Icons.person, "Client: ", _val(e["name"])),
+                                   _infoRow(Icons.shopping_bag, "Product Title: ", _val(e["product_title"])),
+                                   _infoRow(Icons.subject, "Subject: ", _val(e["subject"])),
+                                   _infoRow(Icons.subject, "Other Subject: ", _val(e["other_subject"])),
+                                   _infoRow(Icons.phone, "Phone: ", _val(e["mobile"])),
+                                   _infoRow(Icons.email, "Email: ", _val(e["email"])),
+                                   _infoRow(Icons.business, "Company: ", _val(e["company_name"] ?? e["company"])),
+                                   _infoRow(Icons.message, "Enquiry Message: ", _val(e["message"] ?? e["comments"])),
+                                   _infoRow(Icons.contact_mail, "Preferred Contact: ", _val(e["contactType"])),
+                                   _infoRow(Icons.link, "Website Link: ", _val(e["link"]), isLink: true),
+                                   _infoRow(Icons.link, "Current URL: ", _val(e["current_url"]), isLink: true),
+                                   _infoRow(Icons.info_outline, "ID: ", _val(e["id"])),
+                                   _infoRow(Icons.web, "Website Name: ", _val(e["website_name"])),
+                                   _infoRow(Icons.person_pin, "User ID: ", _val(e["user_id"])),
+                                   _infoRow(Icons.account_tree_outlined, "Parent Site ID: ", _val(e["parent_site_id"])),
+                                   _infoRow(Icons.lan_outlined, "Subdomain Site ID: ", _val(e["subdomain_site_id"])),
+                                   _infoRow(Icons.category, "Category: ", _val(e["category"])),
+                                   _infoRow(Icons.contact_mail, "Contact Methods: ", _val(e["contact_methods"])),
+                                   _infoRow(Icons.image, "Image Path: ", _val(e["image_path"] ?? e["imagePath"])),
+                                   _infoRow(Icons.picture_as_pdf, "PDF Path: ", _val(e["pdf_path"] ?? e["pdfPath"])),
+                                   _infoRow(Icons.calendar_today, "Submitted At: ", _val(_formatDate(e["submitted_at"] ?? e["submittedAt"] ?? e["createdDate"]))),
                                   const SizedBox(height: 16),
                                   const Divider(height: 1, thickness: 1),
                                   const SizedBox(height: 16),
@@ -1458,8 +1527,13 @@ class _GetEnquiryState extends State<GetEnquiry> {
     }
   }
 
+  String _val(dynamic v) {
+    if (v == null || v.toString().trim().isEmpty || v.toString().trim().toLowerCase() == "null") return "-";
+    return v.toString();
+  }
+
   Widget _infoRow(IconData icon, String label, String value, {bool isLink = false}) {
-    if (value.trim().isEmpty) return const SizedBox.shrink();
+    final String displayVal = (value.trim().isEmpty || value.trim().toLowerCase() == "null") ? "-" : value;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
@@ -1483,13 +1557,13 @@ class _GetEnquiryState extends State<GetEnquiry> {
           Padding(
             padding: const EdgeInsets.only(left: 26),
             child: GestureDetector(
-              onTap: isLink ? () => _launchWebUrl(value) : null,
+              onTap: (isLink && displayVal != "-") ? () => _launchWebUrl(displayVal) : null,
               child: Text(
-                value,
+                displayVal,
                 style: TextStyle(
                   fontSize: 16,
-                  color: isLink ? Colors.blue.shade700 : const Color(0xFF0F172A),
-                  decoration: isLink ? TextDecoration.underline : TextDecoration.none,
+                  color: (isLink && displayVal != "-") ? Colors.blue.shade700 : const Color(0xFF0F172A),
+                  decoration: (isLink && displayVal != "-") ? TextDecoration.underline : TextDecoration.none,
                 ),
               ),
             ),

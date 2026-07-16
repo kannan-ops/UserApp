@@ -184,7 +184,7 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with SingleTicker
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text(
           "Admin Chat Center",
@@ -258,8 +258,9 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with SingleTicker
   Widget _buildSearchBar() {
     return Container(
       padding: const EdgeInsets.all(12),
-      color: Colors.white,
+      color: Theme.of(context).colorScheme.surface,
       child: TextField(
+        style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
         onChanged: (val) {
           setState(() {
             _searchQuery = val;
@@ -267,9 +268,12 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with SingleTicker
         },
         decoration: InputDecoration(
           hintText: "Search chats by user name...",
-          prefixIcon: const Icon(Icons.search, color: Colors.grey),
+          hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+          prefixIcon: Icon(Icons.search, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
           filled: true,
-          fillColor: const Color(0xFFF1F5F9),
+          fillColor: Theme.of(context).colorScheme.brightness == Brightness.dark
+              ? const Color(0xFF1E293B)
+              : const Color(0xFFF1F5F9),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide.none,
@@ -400,7 +404,9 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with SingleTicker
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            color: isUnread ? Colors.black87 : Colors.grey.shade600,
+            color: isUnread 
+                ? Theme.of(context).colorScheme.onSurface 
+                : Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
             fontWeight: isUnread ? FontWeight.w600 : FontWeight.normal,
           ),
         ),
@@ -477,22 +483,38 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with SingleTicker
 
     final List<Widget> children = [];
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     if (unread.isNotEmpty) {
-      children.add(_buildSectionHeader("Unread Messages", Colors.red.shade700, Icons.mark_chat_unread_rounded, unread.length));
+      children.add(_buildSectionHeader(
+        "Unread Messages", 
+        isDark ? Colors.red.shade300 : Colors.red.shade700, 
+        Icons.mark_chat_unread_rounded, 
+        unread.length,
+      ));
       for (var item in unread) {
         children.add(_buildTile(item, nameKey, subKey, module, icon, color, true, false));
       }
     }
 
     if (recent.isNotEmpty) {
-      children.add(_buildSectionHeader("Recent Chats", Colors.blue.shade700, Icons.chat_rounded, recent.length));
+      children.add(_buildSectionHeader(
+        "Recent Chats", 
+        isDark ? Colors.blue.shade300 : Colors.blue.shade700, 
+        Icons.chat_rounded, 
+        recent.length,
+      ));
       for (var item in recent) {
         children.add(_buildTile(item, nameKey, subKey, module, icon, color, false, true));
       }
     }
 
     if (noChats.isNotEmpty) {
-      children.add(_buildSectionHeader("No Chats Yet", Colors.grey.shade600, Icons.chat_bubble_outline_rounded, noChats.length));
+      children.add(_buildSectionHeader(
+        "No Chats Yet", 
+        isDark ? Colors.grey.shade400 : Colors.grey.shade600, 
+        Icons.chat_bubble_outline_rounded, 
+        noChats.length,
+      ));
       for (var item in noChats) {
         children.add(_buildTile(item, nameKey, subKey, module, icon, color, false, false));
       }

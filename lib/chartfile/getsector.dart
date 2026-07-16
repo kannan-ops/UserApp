@@ -25,6 +25,14 @@ class _GetByIdState extends State<GetById> {
   final Map<int, List<dynamic>> _chatMessages = {};
   bool _isChatStatusLoaded = false;
 
+  final List<dynamic> _products = [];
+  List<dynamic> _allProducts = [];
+  int _currentPage = 1;
+  final int _limit = 20;
+  bool _hasMore = true;
+  bool _isLoadingMore = false;
+  final ScrollController _scrollController = ScrollController();
+
   Future<void> _fetchAllChatStatuses(List<dynamic> items, String module) async {
     Map<int, List<dynamic>> tempChatMessages = {};
     Map<int, bool> tempUnreadChats = {};
@@ -144,26 +152,20 @@ class _GetByIdState extends State<GetById> {
 
   Future<List<dynamic>> fetchProducts() async {
     _isChatStatusLoaded = false;
-    List<dynamic> allProducts = [];
-    int currentPage = 1;
-    const int limit = 1000000;
-    bool hasMore = true;
+    _products.clear();
+    _allProducts.clear();
+    _currentPage = 1;
+    _hasMore = true;
+    _isLoadingMore = false;
 
-    while (hasMore) {
-      final url = "https://bulk.srivagroups.in/api/product?limit=$limit&page=$currentPage";
+    final url = "https://bulk.srivagroups.in/api/product?limit=1000000";
+    try {
       final res = await ApiDebugLogger.httpClient.get(Uri.parse(url));
-
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
         List<dynamic> rawList = [];
-        int total = 0;
 
         if (decoded is Map) {
-          if (decoded.containsKey('total')) {
-            total = decoded['total'] is int 
-                ? decoded['total'] 
-                : int.tryParse(decoded['total'].toString()) ?? 0;
-          }
           if (decoded.containsKey('data')) {
             final dataVal = decoded['data'];
             if (dataVal is List) {
@@ -182,34 +184,64 @@ class _GetByIdState extends State<GetById> {
         }
 
         if (rawList.isEmpty) {
-          hasMore = false;
+          _hasMore = false;
         } else {
-          allProducts.addAll(rawList);
-          if (total > 0 && allProducts.length >= total) {
-            hasMore = false;
-          } else {
-            currentPage++;
-            if (currentPage > 100) {
-              hasMore = false;
+          final mapped = rawList.map((x) {
+            if (x is Map) {
+              final item = Map<String, dynamic>.from(x);
+              item['total_Price'] ??= item['total_price'];
+              return item;
             }
-          }
+            return x;
+          }).toList();
+
+          _allProducts = mapped;
+          
+          final initialCount = _limit < _allProducts.length ? _limit : _allProducts.length;
+          final chunk = _allProducts.sublist(0, initialCount);
+          _products.addAll(chunk);
+          _hasMore = _products.length < _allProducts.length;
+          
+          _fetchAllChatStatuses(chunk, "sector");
         }
       } else {
-        hasMore = false;
+        _hasMore = false;
       }
+    } catch (_) {
+      _hasMore = false;
     }
+    return _products;
+  }
 
-      final list = allProducts.map((x) {
-        if (x is Map) {
-          final item = Map<String, dynamic>.from(x);
-          item['total_Price'] ??= item['total_price'];
-          return item;
+  Future<void> _loadNextPage() async {
+    if (!_hasMore || _isLoadingMore) return;
+    _isLoadingMore = true;
+
+    try {
+      final startIndex = _products.length;
+      if (startIndex < _allProducts.length) {
+        final nextCount = startIndex + _limit;
+        final endIndex = nextCount < _allProducts.length ? nextCount : _allProducts.length;
+        final chunk = _allProducts.sublist(startIndex, endIndex);
+        
+        _products.addAll(chunk);
+        _hasMore = _products.length < _allProducts.length;
+        
+        _fetchAllChatStatuses(chunk, "sector");
+        
+        if (mounted) {
+          setState(() {
+            futureProducts = Future.value(List.from(_products));
+          });
         }
-        return x;
-      }).toList();
-
-      _fetchAllChatStatuses(list, "sector");
-      return list;
+      } else {
+        _hasMore = false;
+      }
+    } catch (_) {
+      _hasMore = false;
+    } finally {
+      _isLoadingMore = false;
+    }
   }
 
   Future<void> deleteProduct(int id) async {
@@ -404,16 +436,24 @@ class _GetByIdState extends State<GetById> {
                             },
                           ),
 
-                          _infoRow(Icons.person, "Client: ", p["name"] ?? ""),
-                          _infoRow(Icons.phone, "Phone: ", p["mobile"] ?? ""),
-                          _infoRow(Icons.email, "Email: ", p["email"] ?? ""),
-                          _infoRow(Icons.attach_money, "MRP: ", (p["mrp"] ?? "").toString()),
-                          _infoRow(Icons.local_offer, "Price: ", (p["price"] ?? "").toString()),
-                          _infoRow(Icons.format_list_numbered, "Quantity: ", (p["quantity"] ?? "").toString()),
-                          _infoRow(Icons.functions, "Total: ", (p["total_Price"] ?? "").toString()),
-                          _infoRow(Icons.link, "Website Link: ", p["current_url"] ?? "", isLink: true),
-                          _infoRow(Icons.calendar_today, "Date: ", _formatDate(p["date"])),
-                          _infoRow(Icons.access_time, "Time: ", p["time"] ?? ""),
+                          _infoRow(Icons.access_time, "Time: ", _val(p["time"])),
+                          _infoRow(Icons.person, "Client: ", _val(p["name"])),
+                          _infoRow(Icons.phone, "Phone: ", _val(p["mobile"])),
+                          _infoRow(Icons.email, "Email: ", _val(p["email"])),
+                          _infoRow(Icons.attach_money, "MRP: ", _val(p["mrp"])),
+                          _infoRow(Icons.local_offer, "Price: ", _val(p["price"])),
+                          _infoRow(Icons.format_list_numbered, "Quantity: ", _val(p["quantity"])),
+                          _infoRow(Icons.functions, "Total: ", _val(p["total_Price"] ?? p["total_price"])),
+                          _infoRow(Icons.link, "Website Link: ", _val(p["current_url"]), isLink: true),
+                          _infoRow(Icons.info_outline, "ID: ", _val(p["id"])),
+                          _infoRow(Icons.web, "Website Name: ", _val(p["website_name"])),
+                          _infoRow(Icons.person_pin, "User ID: ", _val(p["user_id"])),
+                          _infoRow(Icons.account_tree_outlined, "Parent Site ID: ", _val(p["parent_site_id"])),
+                          _infoRow(Icons.lan_outlined, "Subdomain Site ID: ", _val(p["subdomain_site_id"])),
+                          _infoRow(Icons.category, "Category: ", _val(p["category"])),
+                          _infoRow(Icons.title, "Title: ", _val(p["title"])),
+                          _infoRow(Icons.calendar_today, "Date: ", _val(_formatDate(p["date"]))),
+                          _infoRow(Icons.attach_file, "File: ", _val(p["file"])),
 
                           const SizedBox(height: 24),
                           const Divider(height: 1, thickness: 1),
@@ -642,8 +682,21 @@ class _GetByIdState extends State<GetById> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_scrollListener);
     futureProducts = fetchProducts();
     _loadAdminStatus();
+  }
+
+  void _scrollListener() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      _loadNextPage();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadAdminStatus() async {
@@ -676,8 +729,9 @@ class _GetByIdState extends State<GetById> {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            color: Colors.white,
+            color: Theme.of(context).colorScheme.surface,
             child: TextField(
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
               onChanged: (val) {
                 setState(() {
                   _searchQuery = val.trim().toLowerCase();
@@ -685,9 +739,12 @@ class _GetByIdState extends State<GetById> {
               },
               decoration: InputDecoration(
                 hintText: "Search by product name...",
-                prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+                prefixIcon: Icon(Icons.search, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
                 filled: true,
-                fillColor: const Color(0xFFF1F5F9),
+                fillColor: Theme.of(context).colorScheme.brightness == Brightness.dark
+                    ? const Color(0xFF1E293B)
+                    : const Color(0xFFF1F5F9),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -813,6 +870,7 @@ class _GetByIdState extends State<GetById> {
                 _buildSummaryBanner(filteredProducts),
                 Expanded(
                   child: ListView.builder(
+                    controller: _scrollController,
                     padding: const EdgeInsets.all(14),
                     itemCount: filteredProducts.length,
                     itemBuilder: (context, index) {
@@ -1044,13 +1102,24 @@ class _GetByIdState extends State<GetById> {
                                     ),
                                   ],
                                   const SizedBox(height: 12),
-                                  _infoRow(Icons.access_time, "Time: ", p["time"] ?? ""),
-                                  _infoRow(Icons.person, "Client: ", p["name"] ?? ""),
-                                  _infoRow(Icons.attach_money, "MRP: ", (p["mrp"] ?? "").toString()),
-                                  _infoRow(Icons.local_offer, "Price: ", (p["price"] ?? "").toString()),
-                                  _infoRow(Icons.format_list_numbered, "Quantity: ", (p["quantity"] ?? "").toString()),
-                                  _infoRow(Icons.functions, "Total: ", (p["total_Price"] ?? "").toString()),
-                                  _infoRow(Icons.link, "Website Link: ", p["current_url"] ?? "", isLink: true),
+                                  _infoRow(Icons.access_time, "Time: ", _val(p["time"])),
+                                  _infoRow(Icons.person, "Client: ", _val(p["name"])),
+                                  _infoRow(Icons.phone, "Phone: ", _val(p["mobile"])),
+                                  _infoRow(Icons.email, "Email: ", _val(p["email"])),
+                                  _infoRow(Icons.attach_money, "MRP: ", _val(p["mrp"])),
+                                  _infoRow(Icons.local_offer, "Price: ", _val(p["price"])),
+                                  _infoRow(Icons.format_list_numbered, "Quantity: ", _val(p["quantity"])),
+                                  _infoRow(Icons.functions, "Total: ", _val(p["total_Price"] ?? p["total_price"])),
+                                  _infoRow(Icons.link, "Website Link: ", _val(p["current_url"]), isLink: true),
+                                  _infoRow(Icons.info_outline, "ID: ", _val(p["id"])),
+                                  _infoRow(Icons.web, "Website Name: ", _val(p["website_name"])),
+                                  _infoRow(Icons.person_pin, "User ID: ", _val(p["user_id"])),
+                                  _infoRow(Icons.account_tree_outlined, "Parent Site ID: ", _val(p["parent_site_id"])),
+                                  _infoRow(Icons.lan_outlined, "Subdomain Site ID: ", _val(p["subdomain_site_id"])),
+                                  _infoRow(Icons.category, "Category: ", _val(p["category"])),
+                                  _infoRow(Icons.title, "Title: ", _val(p["title"])),
+                                  _infoRow(Icons.calendar_today, "Date: ", _val(_formatDate(p["date"]))),
+                                  _infoRow(Icons.attach_file, "File: ", _val(p["file"])),
                                   const SizedBox(height: 16),
                                   const Divider(height: 1, thickness: 1),
                                   const SizedBox(height: 16),
@@ -1328,8 +1397,13 @@ class _GetByIdState extends State<GetById> {
     }
   }
 
+  String _val(dynamic v) {
+    if (v == null || v.toString().trim().isEmpty || v.toString().trim().toLowerCase() == "null") return "-";
+    return v.toString();
+  }
+
   Widget _infoRow(IconData icon, String label, String value, {bool isLink = false}) {
-    if (value.trim().isEmpty) return const SizedBox.shrink();
+    final String displayVal = (value.trim().isEmpty || value.trim().toLowerCase() == "null") ? "-" : value;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
@@ -1353,13 +1427,13 @@ class _GetByIdState extends State<GetById> {
           Padding(
             padding: const EdgeInsets.only(left: 26),
             child: GestureDetector(
-              onTap: isLink ? () => _launchWebUrl(value) : null,
+              onTap: (isLink && displayVal != "-") ? () => _launchWebUrl(displayVal) : null,
               child: Text(
-                value,
+                displayVal,
                 style: TextStyle(
                   fontSize: 16,
-                  color: isLink ? Colors.blue.shade700 : const Color(0xFF0F172A),
-                  decoration: isLink ? TextDecoration.underline : TextDecoration.none,
+                  color: (isLink && displayVal != "-") ? Colors.blue.shade700 : const Color(0xFF0F172A),
+                  decoration: (isLink && displayVal != "-") ? TextDecoration.underline : TextDecoration.none,
                 ),
               ),
             ),

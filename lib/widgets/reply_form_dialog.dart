@@ -96,145 +96,92 @@ class _ReplyFormDialogState extends State<ReplyFormDialog> {
     }
   }
 
+  String _val(dynamic v) {
+    if (v == null) return "-";
+    final s = v.toString().trim();
+    if (s.isEmpty || s.toLowerCase() == "null") return "-";
+    return s;
+  }
+
+  String _formatDate(String? rawDate) {
+    if (rawDate == null || rawDate.isEmpty) return "-";
+    try {
+      final parsed = DateTime.parse(rawDate);
+      return "${parsed.day.toString().padLeft(2, '0')}-${parsed.month.toString().padLeft(2, '0')}-${parsed.year}";
+    } catch (_) {
+      if (rawDate.length >= 10) return rawDate.substring(0, 10);
+      return rawDate;
+    }
+  }
+
   Map<String, String> _getPremiumDetails() {
     final Map<String, String> details = {};
     final data = widget.fullData ?? {};
-    
-    // Helper to extract the first non-empty value matching a list of potential keys
-    String getValue(List<String> keys) {
-      for (final key in keys) {
-        if (data[key] != null && data[key].toString().trim().isNotEmpty) {
-          return data[key].toString().trim();
-        }
-      }
-      return "";
-    }
 
     if (widget.module == 'bulk_order') {
-      final category = getValue(["category"]);
-      if (category.isNotEmpty) details["Category"] = category;
-      
-      final product = getValue(["product", "product_name", "product_title"]);
-      if (product.isNotEmpty) details["Product Title"] = product;
-
-      final quantity = getValue(["quantity"]);
-      if (quantity.isNotEmpty) details["Quantity"] = quantity;
-
-      final name = getValue(["name"]);
-      if (name.isNotEmpty) details["Customer Name"] = name;
-
-      final phone = getValue(["mobile", "phone"]);
-      if (phone.isNotEmpty) details["Mobile Number"] = phone;
-
-      final email = getValue(["email"]);
-      if (email.isNotEmpty) details["Email Address"] = email;
-
-      final company = getValue(["company", "company_name"]);
-      if (company.isNotEmpty) details["Company Name"] = company;
-
-      final deliveryDate = getValue(["deliveryDate", "preferred_delivery_date"]);
-      if (deliveryDate.isNotEmpty) details["Delivery Date"] = deliveryDate;
-
-      final specialInstructions = getValue(["specialInstructions", "special_instructions"]);
-      if (specialInstructions.isNotEmpty) details["Special Instructions"] = specialInstructions;
-
-      final link = getValue(["link"]);
-      if (link.isNotEmpty) details["Website Link"] = link;
-
-      final submittedAt = getValue(["submittedAt", "submitted_at"]);
-      if (submittedAt.isNotEmpty) details["Submitted At"] = submittedAt;
+      details["Client Name"] = _val(data["name"]);
+      details["Product Name"] = _val(data["product_name"] ?? data["product"]);
+      details["Product Title"] = _val(data["product_title"]);
+      details["Phone"] = _val(data["mobile"]);
+      details["Email"] = _val(data["email"]);
+      details["Company"] = _val(data["company_name"] ?? data["company"]);
+      details["Quantity"] = _val(data["quantity"]);
+      details["Delivery Date"] = _val(data["preferred_delivery_date"] ?? data["deliveryDate"]);
+      details["Preferred Contact"] = _val(data["contactType"]);
+      details["Website Link"] = _val(data["link"]);
+      details["Current URL"] = _val(data["current_url"]);
+      details["ID"] = _val(data["id"]);
+      details["Website Name"] = _val(data["website_name"]);
+      details["User ID"] = _val(data["user_id"]);
+      details["Parent Site ID"] = _val(data["parent_site_id"]);
+      details["Subdomain Site ID"] = _val(data["subdomain_site_id"]);
+      details["Category"] = _val(data["category"]);
+      details["Contact Methods"] = _val(data["contact_methods"]);
+      details["Special Instructions"] = _val(data["special_instructions"] ?? data["specialInstructions"]);
+      details["PDF Path"] = _val(data["pdf_path"] ?? data["pdfPath"]);
+      details["Submitted At"] = _val(_formatDate(data["submitted_at"] ?? data["submittedAt"]));
     } else if (widget.module == 'enquiry') {
-      final name = getValue(["name"]);
-      if (name.isNotEmpty) details["Customer Name"] = name;
-
-      final phone = getValue(["mobile", "phone"]);
-      if (phone.isNotEmpty) details["Mobile Number"] = phone;
-
-      final email = getValue(["email"]);
-      if (email.isNotEmpty) details["Email Address"] = email;
-
-      final company = getValue(["company", "company_name"]);
-      if (company.isNotEmpty) details["Company Name"] = company;
-
-      final subject = getValue(["subject"]);
-      if (subject.isNotEmpty) details["Subject"] = subject;
-
-      final otherSubject = getValue(["otherSubject", "other_subject"]);
-      if (otherSubject.isNotEmpty) details["Other Subject"] = otherSubject;
-
-      final comments = getValue(["comments", "message", "comment"]);
-      if (comments.isNotEmpty) details["Comments / Message"] = comments;
-
-      final link = getValue(["link"]);
-      if (link.isNotEmpty) details["Website Link"] = link;
-
-      final submittedAt = getValue(["createdDate", "created_at", "submitted_at"]);
-      if (submittedAt.isNotEmpty) details["Submitted At"] = submittedAt;
+      details["Client Name"] = _val(data["name"]);
+      details["Product Title"] = _val(data["product_title"]);
+      details["Subject"] = _val(data["subject"]);
+      details["Other Subject"] = _val(data["other_subject"]);
+      details["Phone"] = _val(data["mobile"]);
+      details["Email"] = _val(data["email"]);
+      details["Company"] = _val(data["company_name"] ?? data["company"]);
+      details["Enquiry Message"] = _val(data["message"] ?? data["comments"]);
+      details["Preferred Contact"] = _val(data["contactType"]);
+      details["Website Link"] = _val(data["link"]);
+      details["Current URL"] = _val(data["current_url"]);
+      details["ID"] = _val(data["id"]);
+      details["Website Name"] = _val(data["website_name"]);
+      details["User ID"] = _val(data["user_id"]);
+      details["Parent Site ID"] = _val(data["parent_site_id"]);
+      details["Subdomain Site ID"] = _val(data["subdomain_site_id"]);
+      details["Category"] = _val(data["category"]);
+      details["Contact Methods"] = _val(data["contact_methods"]);
+      details["Image Path"] = _val(data["image_path"] ?? data["imagePath"]);
+      details["PDF Path"] = _val(data["pdf_path"] ?? data["pdfPath"]);
+      details["Submitted At"] = _val(_formatDate(data["submitted_at"] ?? data["submittedAt"] ?? data["createdDate"]));
     } else { // sector / product
-      final title = getValue(["title", "product_title", "product_name", "name"]);
-      if (title.isNotEmpty) details["Product Title"] = title;
-
-      final name = getValue(["name"]);
-      if (name.isNotEmpty) details["Customer Name"] = name;
-
-      final phone = getValue(["mobile", "phone"]);
-      if (phone.isNotEmpty) details["Mobile Number"] = phone;
-
-      final email = getValue(["email"]);
-      if (email.isNotEmpty) details["Email Address"] = email;
-
-      final mrp = getValue(["mrp"]);
-      if (mrp.isNotEmpty) details["MRP"] = mrp;
-
-      final price = getValue(["price"]);
-      if (price.isNotEmpty) details["Price"] = price;
-
-      final quantity = getValue(["quantity"]);
-      if (quantity.isNotEmpty) details["Quantity"] = quantity;
-
-      final totalPrice = getValue(["total_price", "total_Price"]);
-      if (totalPrice.isNotEmpty) details["Total Price"] = totalPrice;
-
-      final link = getValue(["current_url", "link"]);
-      if (link.isNotEmpty) details["Website Link"] = link;
-
-      final dateTime = getValue(["date", "time", "createdDate", "created_at"]);
-      if (dateTime.isNotEmpty) details["Date / Time"] = dateTime;
+      details["Time"] = _val(data["time"]);
+      details["Client Name"] = _val(data["name"]);
+      details["Phone"] = _val(data["mobile"]);
+      details["Email"] = _val(data["email"]);
+      details["MRP"] = _val(data["mrp"]);
+      details["Price"] = _val(data["price"]);
+      details["Quantity"] = _val(data["quantity"]);
+      details["Total"] = _val(data["total_Price"] ?? data["total_price"]);
+      details["Website Link"] = _val(data["current_url"] ?? data["link"]);
+      details["ID"] = _val(data["id"]);
+      details["Website Name"] = _val(data["website_name"]);
+      details["User ID"] = _val(data["user_id"]);
+      details["Parent Site ID"] = _val(data["parent_site_id"]);
+      details["Subdomain Site ID"] = _val(data["subdomain_site_id"]);
+      details["Category"] = _val(data["category"]);
+      details["Title"] = _val(data["title"]);
+      details["Date"] = _val(_formatDate(data["date"]));
+      details["File"] = _val(data["file"]);
     }
-
-    // Keep track of lowercased values already captured to dynamically ignore duplicates
-    final Set<String> capturedValues = details.values.map((v) => v.toLowerCase()).toSet();
-    
-    // Technical, helper, or duplicate keys we should ignore
-    final List<String> technicalKeys = [
-      'id', 'user_id', 'parent_site_id', 'subdomain_site_id', 'pdf_path', 'image_path',
-      'pdfpath', 'imagepath', 'chatstatus', 'has_new_messages', 'unread_count',
-      'last_message_at', 'reply_status', 'bulkorderid', 'enquiryid', 'sectorid', 'status',
-      'callback', 'sms', 'whatsapp', 'mail', 'contact'
-    ];
-
-    data.forEach((key, val) {
-      if (val == null || val.toString().trim().isEmpty) return;
-      final valStr = val.toString().trim();
-      final keyLower = key.toLowerCase();
-      
-      // Skip already captured values to avoid double-entries
-      if (capturedValues.contains(valStr.toLowerCase())) return;
-      
-      // Skip technical keys and helper booleans
-      if (technicalKeys.any((tk) => keyLower.contains(tk))) return;
-      if (val is bool) return;
-
-      // Format clean key title
-      final formattedKey = key
-          .replaceAll('_', ' ')
-          .split(' ')
-          .map((str) => str.isNotEmpty ? '${str[0].toUpperCase()}${str.substring(1)}' : '')
-          .join(' ');
-      
-      details[formattedKey] = valStr;
-      capturedValues.add(valStr.toLowerCase());
-    });
 
     return details;
   }
