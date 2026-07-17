@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
 import 'package:enquiry_app/utils/api_debug_logger.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -31,7 +33,7 @@ class _getbukState extends State<getbuk> {
 
   final List<dynamic> _orders = [];
   int _currentPage = 1;
-  final int _limit = 20;
+  int _limit = 10;
   bool _hasMore = true;
   bool _isLoadingMore = false;
   final ScrollController _scrollController = ScrollController();
@@ -236,23 +238,26 @@ class _getbukState extends State<getbuk> {
           final mapped = _mapOrders(rawList);
           _orders.addAll(mapped);
           _currentPage++;
-          if (total > 0 && _orders.length >= total) {
+          if (rawList.length < _limit || (total > 0 && _orders.length >= total)) {
             _hasMore = false;
           }
           _fetchAllChatStatuses(mapped, "bulk_order");
         }
       } else {
-        _hasMore = false;
+        throw Exception("Server returned code ${res.statusCode}");
       }
-    } catch (_) {
+    } catch (e) {
       _hasMore = false;
+      rethrow;
     }
     return _orders;
   }
 
   Future<void> _loadNextPage() async {
     if (!_hasMore || _isLoadingMore) return;
-    _isLoadingMore = true;
+    setState(() {
+      _isLoadingMore = true;
+    });
     
     final url = "https://bulk.srivagroups.in/api/bulk-orders?limit=$_limit&page=$_currentPage";
     try {
@@ -291,7 +296,7 @@ class _getbukState extends State<getbuk> {
           final mapped = _mapOrders(rawList);
           _orders.addAll(mapped);
           _currentPage++;
-          if (total > 0 && _orders.length >= total) {
+          if (rawList.length < _limit || (total > 0 && _orders.length >= total)) {
             _hasMore = false;
           }
           
@@ -304,13 +309,32 @@ class _getbukState extends State<getbuk> {
           }
         }
       } else {
-        _hasMore = false;
+        _showErrorSnackBar("Failed to load more orders: ${res.statusCode}");
       }
-    } catch (_) {
-      _hasMore = false;
+    } catch (e) {
+      _showErrorSnackBar("Network error: Please try again");
     } finally {
-      _isLoadingMore = false;
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+        });
+      }
     }
+  }
+
+  void _showErrorSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        action: SnackBarAction(
+          label: 'Retry',
+          onPressed: () {
+            _loadNextPage();
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> deleteOrder(int id) async {
@@ -795,6 +819,59 @@ class _getbukState extends State<getbuk> {
     }
   }
 
+  Future<void> _exportToCSV(BuildContext context) async {
+    if (_orders.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No orders available to export")),
+      );
+      return;
+    }
+
+    try {
+      final buffer = StringBuffer();
+      buffer.writeln("ID,Client Name,Product,Company,Mobile,Email,Quantity,Delivery Date,Submitted At");
+      
+      for (final o in _orders) {
+        final id = o["id"] ?? "";
+        final name = (o["name"] ?? "").toString().replaceAll(",", " ");
+        final product = (o["product"] ?? "").toString().replaceAll(",", " ");
+        final company = (o["company"] ?? "").toString().replaceAll(",", " ");
+        final mobile = o["mobile"] ?? "";
+        final email = o["email"] ?? "";
+        final quantity = o["quantity"] ?? "";
+        final deliveryDate = o["deliveryDate"] ?? "";
+        final submittedAt = o["submittedAt"] ?? "";
+        
+        buffer.writeln("$id,$name,$product,$company,$mobile,$email,$quantity,$deliveryDate,$submittedAt");
+      }
+
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File("${directory.path}/bulk_orders_export.csv");
+      await file.writeAsString(buffer.toString());
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFF059669),
+            duration: const Duration(seconds: 5),
+            content: Text("Report exported successfully to: ${file.path}"),
+            action: SnackBarAction(
+              label: "OK",
+              textColor: Colors.white,
+              onPressed: () {},
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Export failed: $e")),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -802,6 +879,11 @@ class _getbukState extends State<getbuk> {
         title: Text("Bulk Orders"),
         backgroundColor: Color(0xFF3B5BDB),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.download_rounded, color: Colors.white),
+            tooltip: "Export CSV Report",
+            onPressed: () => _exportToCSV(context),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Colors.white),
             onPressed: () {
@@ -935,17 +1017,30 @@ class _getbukState extends State<getbuk> {
                 children: [
                   _buildSummaryBanner(filteredOrders),
                   Expanded(
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.filter_list_off_rounded, size: 48, color: Colors.grey.shade400),
-                          const SizedBox(height: 12),
-                          Text(
-                            "No Matching Orders Found",
-                            style: TextStyle(fontSize: 16, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
+                    child: RefreshIndicator(
+                      onRefresh: () async {
+                        setState(() {
+                          futureOrders = fetchOrders();
+                        });
+                        await futureOrders;
+                      },
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        child: Container(
+                          height: MediaQuery.of(context).size.height * 0.5,
+                          alignment: Alignment.center,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.filter_list_off_rounded, size: 48, color: Colors.grey.shade400),
+                              const SizedBox(height: 12),
+                              Text(
+                                "No Matching Orders Found",
+                                style: TextStyle(fontSize: 16, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
@@ -957,11 +1052,37 @@ class _getbukState extends State<getbuk> {
               children: [
                 _buildSummaryBanner(filteredOrders),
                 Expanded(
-                  child: ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(14),
-                    itemCount: filteredOrders.length,
-                    itemBuilder: (context, index) {
+                  child: RefreshIndicator(
+                    onRefresh: () async {
+                      setState(() {
+                        futureOrders = fetchOrders();
+                      });
+                      await futureOrders;
+                    },
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.all(14),
+                      itemCount: filteredOrders.length + (_isLoadingMore ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (index == filteredOrders.length) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                            child: Center(
+                              child: SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            ),
+                          );
+                        }
+
+                        // Auto-trigger loading next page when reaching the last 5 visible items:
+                        if (index >= filteredOrders.length - 5) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            _loadNextPage();
+                          });
+                        }
                       final o = filteredOrders[index];
                       final id = o["id"] is int ? o["id"] : int.tryParse(o["id"].toString()) ?? 0;
 
@@ -1424,8 +1545,9 @@ class _getbukState extends State<getbuk> {
                     },
                   ),
                 ),
-              ],
-            );
+              ),
+            ],
+          );
           },
         ),
       ),

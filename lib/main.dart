@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -20,35 +22,47 @@ import 'package:enquiry_app/appcontroler/appcontroler/mobile_validation_service.
 import 'package:enquiry_app/services/custom_flow_service.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  runZoned(() async {
+    WidgetsFlutterBinding.ensureInitialized();
 
-  final storageService = await StorageService.getInstance();
-  final secureStorage = await SecureStorageService.getInstance();
-  final apiService = ApiService();
-  final lockRepository = LockRepository(
-    apiService: apiService,
-    secureStorage: secureStorage,
-  );
-  final lockService = LockService(repo: lockRepository);
-  final securityManager = SecurityManager(
-    repository: lockRepository,
-    lockService: lockService,
-  );
+    if (!kDebugMode) {
+      debugPrint = (String? message, {int? wrapWidth}) {};
+    }
 
-  MobileValidationService.syncUserAppData();
+    final storageService = await StorageService.getInstance();
+    final secureStorage = await SecureStorageService.getInstance();
+    final apiService = ApiService();
+    final lockRepository = LockRepository(
+      apiService: apiService,
+      secureStorage: secureStorage,
+    );
+    final lockService = LockService(repo: lockRepository);
+    final securityManager = SecurityManager(
+      repository: lockRepository,
+      lockService: lockService,
+    );
 
-  runApp(
-    ProviderScope(
-      overrides: [
-        storageServiceProvider.overrideWithValue(storageService),
-        secureStorageServiceProvider.overrideWithValue(secureStorage),
-        lockRepositoryProvider.overrideWithValue(lockRepository),
-        lockServiceProvider.overrideWithValue(lockService),
-        securityManagerProvider.overrideWith((ref) => securityManager),
-      ],
-      child: const CircuitPointApp(),
-    ),
-  );
+    MobileValidationService.syncUserAppData();
+
+    runApp(
+      ProviderScope(
+        overrides: [
+          storageServiceProvider.overrideWithValue(storageService),
+          secureStorageServiceProvider.overrideWithValue(secureStorage),
+          lockRepositoryProvider.overrideWithValue(lockRepository),
+          lockServiceProvider.overrideWithValue(lockService),
+          securityManagerProvider.overrideWith((ref) => securityManager),
+        ],
+        child: const CircuitPointApp(),
+      ),
+    );
+  }, zoneSpecification: ZoneSpecification(
+    print: (self, parent, zone, line) {
+      if (kDebugMode) {
+        parent.print(zone, line);
+      }
+    },
+  ));
 }
 
 class NavigationService {

@@ -11,6 +11,7 @@ import 'package:enquiry_app/theme/theme_provider.dart';
 import 'package:enquiry_app/providers/security_auth_provider.dart';
 import 'package:enquiry_app/providers/grid_card_provider.dart';
 import 'package:enquiry_app/providers/security_settings_provider.dart';
+import 'package:enquiry_app/services/sound_service.dart';
 
 final storageServiceProvider = Provider<StorageService>((ref) {
   throw UnimplementedError('storageServiceProvider must be overridden in ProviderScope');
@@ -61,3 +62,8 @@ final gridCardProvider = ChangeNotifierProvider<GridCardProvider>((ref) {
 final securitySettingsProvider = ChangeNotifierProvider<SecuritySettingsProvider>((ref) {
   return SecuritySettingsProvider()..fetchSettings();
 });
+
+final notificationSoundServiceProvider = Provider<NotificationSoundService>((ref) {
+  return NotificationSoundService();
+});
+

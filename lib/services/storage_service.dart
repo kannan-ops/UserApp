@@ -28,6 +28,7 @@ class StorageService {
   static const String keyNotificationsEnabled = 'notifications_enabled';
   static const String keyLanguage = 'language';
   static const String keyAutoSync = 'auto_sync';
+  static const String keyNotificationSoundEnabled = 'notification_sound_enabled';
 
   static const String keyIsPinEnabled = 'is_pin_enabled';
   static const String keyPinCode = 'pin_code';
@@ -110,6 +111,11 @@ class StorageService {
   bool get autoSync => _prefs?.getBool(keyAutoSync) ?? true;
   Future<bool> setAutoSync(bool value) async =>
       await _prefs?.setBool(keyAutoSync, value) ?? false;
+
+  bool get notificationSoundEnabled =>
+      _prefs?.getBool(keyNotificationSoundEnabled) ?? true;
+  Future<bool> setNotificationSoundEnabled(bool value) async =>
+      await _prefs?.setBool(keyNotificationSoundEnabled, value) ?? false;
 
   bool get isPinEnabled => _prefs?.getBool(keyIsPinEnabled) ?? false;
   Future<bool> setPinEnabled(bool value) async =>

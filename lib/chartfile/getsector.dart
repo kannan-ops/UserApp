@@ -1,6 +1,8 @@
   import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:enquiry_app/utils/api_debug_logger.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'editsec.dart';
@@ -28,7 +30,7 @@ class _GetByIdState extends State<GetById> {
   final List<dynamic> _products = [];
   List<dynamic> _allProducts = [];
   int _currentPage = 1;
-  final int _limit = 20;
+  int _limit = 10;
   bool _hasMore = true;
   bool _isLoadingMore = false;
   final ScrollController _scrollController = ScrollController();
@@ -158,14 +160,20 @@ class _GetByIdState extends State<GetById> {
     _hasMore = true;
     _isLoadingMore = false;
 
-    final url = "https://bulk.srivagroups.in/api/product?limit=1000000";
+    final url = "https://bulk.srivagroups.in/api/product?limit=$_limit&page=$_currentPage";
     try {
       final res = await ApiDebugLogger.httpClient.get(Uri.parse(url));
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
         List<dynamic> rawList = [];
+        int total = 0;
 
         if (decoded is Map) {
+          if (decoded.containsKey('total')) {
+            total = decoded['total'] is int 
+                ? decoded['total'] 
+                : int.tryParse(decoded['total'].toString()) ?? 0;
+          }
           if (decoded.containsKey('data')) {
             final dataVal = decoded['data'];
             if (dataVal is List) {
@@ -195,53 +203,144 @@ class _GetByIdState extends State<GetById> {
             return x;
           }).toList();
 
-          _allProducts = mapped;
-          
-          final initialCount = _limit < _allProducts.length ? _limit : _allProducts.length;
-          final chunk = _allProducts.sublist(0, initialCount);
-          _products.addAll(chunk);
-          _hasMore = _products.length < _allProducts.length;
-          
-          _fetchAllChatStatuses(chunk, "sector");
+          if (rawList.length > _limit) {
+            _allProducts = mapped;
+            final initialCount = _limit < _allProducts.length ? _limit : _allProducts.length;
+            final chunk = _allProducts.sublist(0, initialCount);
+            _products.addAll(chunk);
+            _hasMore = _products.length < _allProducts.length;
+            _fetchAllChatStatuses(chunk, "sector");
+          } else {
+            _products.addAll(mapped);
+            _currentPage++;
+            if (rawList.length < _limit || (total > 0 && _products.length >= total)) {
+              _hasMore = false;
+            }
+            _fetchAllChatStatuses(mapped, "sector");
+          }
         }
       } else {
-        _hasMore = false;
+        throw Exception("Server returned code ${res.statusCode}");
       }
-    } catch (_) {
+    } catch (e) {
       _hasMore = false;
+      rethrow;
     }
     return _products;
   }
 
   Future<void> _loadNextPage() async {
     if (!_hasMore || _isLoadingMore) return;
-    _isLoadingMore = true;
+    setState(() {
+      _isLoadingMore = true;
+    });
 
     try {
-      final startIndex = _products.length;
-      if (startIndex < _allProducts.length) {
-        final nextCount = startIndex + _limit;
-        final endIndex = nextCount < _allProducts.length ? nextCount : _allProducts.length;
-        final chunk = _allProducts.sublist(startIndex, endIndex);
-        
-        _products.addAll(chunk);
-        _hasMore = _products.length < _allProducts.length;
-        
-        _fetchAllChatStatuses(chunk, "sector");
-        
-        if (mounted) {
-          setState(() {
-            futureProducts = Future.value(List.from(_products));
-          });
+      if (_allProducts.isNotEmpty) {
+        final startIndex = _products.length;
+        if (startIndex < _allProducts.length) {
+          final nextCount = startIndex + _limit;
+          final endIndex = nextCount < _allProducts.length ? nextCount : _allProducts.length;
+          final chunk = _allProducts.sublist(startIndex, endIndex);
+          
+          _products.addAll(chunk);
+          _hasMore = _products.length < _allProducts.length;
+          
+          _fetchAllChatStatuses(chunk, "sector");
+          
+          if (mounted) {
+            setState(() {
+              futureProducts = Future.value(List.from(_products));
+            });
+          }
+        } else {
+          _hasMore = false;
         }
       } else {
-        _hasMore = false;
+        final url = "https://bulk.srivagroups.in/api/product?limit=$_limit&page=$_currentPage";
+        final res = await ApiDebugLogger.httpClient.get(Uri.parse(url));
+        if (res.statusCode == 200) {
+          final decoded = jsonDecode(res.body);
+          List<dynamic> rawList = [];
+          int total = 0;
+
+          if (decoded is Map) {
+            if (decoded.containsKey('total')) {
+              total = decoded['total'] is int 
+                  ? decoded['total'] 
+                  : int.tryParse(decoded['total'].toString()) ?? 0;
+            }
+            if (decoded.containsKey('data')) {
+              final dataVal = decoded['data'];
+              if (dataVal is List) {
+                rawList = dataVal;
+              } else if (dataVal is Map) {
+                if (dataVal.containsKey('data')) {
+                  final nestedDataVal = dataVal['data'];
+                  if (nestedDataVal is List) {
+                    rawList = nestedDataVal;
+                  }
+                }
+              }
+            }
+          } else if (decoded is List) {
+            rawList = decoded;
+          }
+
+          if (rawList.isEmpty) {
+            _hasMore = false;
+          } else {
+            final mapped = rawList.map((x) {
+              if (x is Map) {
+                final item = Map<String, dynamic>.from(x);
+                item['total_Price'] ??= item['total_price'];
+                return item;
+              }
+              return x;
+            }).toList();
+
+            _products.addAll(mapped);
+            _currentPage++;
+            if (rawList.length < _limit || (total > 0 && _products.length >= total)) {
+              _hasMore = false;
+            }
+            
+            _fetchAllChatStatuses(mapped, "sector");
+            
+            if (mounted) {
+              setState(() {
+                futureProducts = Future.value(List.from(_products));
+              });
+            }
+          }
+        } else {
+          _showErrorSnackBar("Failed to load more products: ${res.statusCode}");
+        }
       }
-    } catch (_) {
-      _hasMore = false;
+    } catch (e) {
+      _showErrorSnackBar("Network error: Please try again");
     } finally {
-      _isLoadingMore = false;
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+        });
+      }
     }
+  }
+
+  void _showErrorSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        action: SnackBarAction(
+          label: 'Retry',
+          onPressed: () {
+            _loadNextPage();
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> deleteProduct(int id) async {
@@ -708,6 +807,57 @@ class _GetByIdState extends State<GetById> {
     }
   }
 
+  Future<void> _exportToCSV(BuildContext context) async {
+    if (_products.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No products available to export")),
+      );
+      return;
+    }
+
+    try {
+      final buffer = StringBuffer();
+      buffer.writeln("ID,Product Name,Description,Price,Quantity,Sector Title,Submitted At");
+      
+      for (final p in _products) {
+        final id = p["id"] ?? "";
+        final name = (p["name"] ?? "").toString().replaceAll(",", " ");
+        final desc = (p["description"] ?? "").toString().replaceAll(",", " ");
+        final price = p["price"] ?? "";
+        final quantity = p["quantity"] ?? "";
+        final sectorTitle = (p["sector_title"] ?? "").toString().replaceAll(",", " ");
+        final submittedAt = p["submittedAt"] ?? p["created_at"] ?? "";
+        
+        buffer.writeln("$id,$name,$desc,$price,$quantity,$sectorTitle,$submittedAt");
+      }
+
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File("${directory.path}/products_export.csv");
+      await file.writeAsString(buffer.toString());
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFF059669),
+            duration: const Duration(seconds: 5),
+            content: Text("Report exported successfully to: ${file.path}"),
+            action: SnackBarAction(
+              label: "OK",
+              textColor: Colors.white,
+              onPressed: () {},
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Export failed: $e")),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -715,6 +865,11 @@ class _GetByIdState extends State<GetById> {
         title: Text("Product List"),
         backgroundColor: Color(0xFF3B5BDB),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.download_rounded, color: Colors.white),
+            tooltip: "Export CSV Report",
+            onPressed: () => _exportToCSV(context),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Colors.white),
             onPressed: () {
@@ -847,17 +1002,30 @@ class _GetByIdState extends State<GetById> {
                 children: [
                   _buildSummaryBanner(filteredProducts),
                   Expanded(
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.filter_list_off_rounded, size: 48, color: Colors.grey.shade400),
-                          const SizedBox(height: 12),
-                          Text(
-                            "No Matching Sectors Found",
-                            style: TextStyle(fontSize: 16, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
+                    child: RefreshIndicator(
+                      onRefresh: () async {
+                        setState(() {
+                          futureProducts = fetchProducts();
+                        });
+                        await futureProducts;
+                      },
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        child: Container(
+                          height: MediaQuery.of(context).size.height * 0.5,
+                          alignment: Alignment.center,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.filter_list_off_rounded, size: 48, color: Colors.grey.shade400),
+                              const SizedBox(height: 12),
+                              Text(
+                                "No Matching Sectors Found",
+                                style: TextStyle(fontSize: 16, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
@@ -869,11 +1037,37 @@ class _GetByIdState extends State<GetById> {
               children: [
                 _buildSummaryBanner(filteredProducts),
                 Expanded(
-                  child: ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(14),
-                    itemCount: filteredProducts.length,
-                    itemBuilder: (context, index) {
+                  child: RefreshIndicator(
+                    onRefresh: () async {
+                      setState(() {
+                        futureProducts = fetchProducts();
+                      });
+                      await futureProducts;
+                    },
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.all(14),
+                      itemCount: filteredProducts.length + (_isLoadingMore ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (index == filteredProducts.length) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                            child: Center(
+                              child: SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            ),
+                          );
+                        }
+
+                        // Auto-trigger loading next page when reaching the last 5 visible items:
+                        if (index >= filteredProducts.length - 5) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            _loadNextPage();
+                          });
+                        }
                       final p = filteredProducts[index];
                       final id = p["id"] is int ? p["id"] : int.tryParse(p["id"].toString()) ?? 0;
 
@@ -1278,8 +1472,9 @@ class _GetByIdState extends State<GetById> {
                     },
                   ),
                 ),
-              ],
-            );
+              ),
+            ],
+          );
           },
         ),
       ),

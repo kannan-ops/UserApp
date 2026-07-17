@@ -25,6 +25,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late StorageService _storageService;
 
   bool _notificationsEnabled = true;
+  bool _notificationSoundEnabled = true;
   String _selectedLanguage = 'English';
   bool _autoSync = true;
 
@@ -42,6 +43,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void _loadSettings() {
     setState(() {
       _notificationsEnabled = _storageService.notificationsEnabled;
+      _notificationSoundEnabled = _storageService.notificationSoundEnabled;
       _selectedLanguage = _storageService.language;
       _autoSync = _storageService.autoSync;
     });
@@ -52,6 +54,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _notificationsEnabled = value;
     });
     await _storageService.setNotificationsEnabled(value);
+  }
+
+  void _toggleNotificationSound(bool value) async {
+    setState(() {
+      _notificationSoundEnabled = value;
+    });
+    await _storageService.setNotificationSoundEnabled(value);
   }
 
   void _toggleAutoSync(bool value) async {
@@ -383,6 +392,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       subtitle: 'Alert on system audits or new security clears',
                       value: _notificationsEnabled,
                       onChanged: _toggleNotifications,
+                      context: context,
+                    ),
+                    const Divider(height: 1, indent: 64, endIndent: 20),
+
+                    _buildSwitchRow(
+                      icon: Icons.volume_up_rounded,
+                      title: 'Notification Sound',
+                      subtitle: 'Play sound when new items arrive in feed',
+                      value: _notificationSoundEnabled,
+                      onChanged: _toggleNotificationSound,
                       context: context,
                     ),
                     const Divider(height: 1, indent: 64, endIndent: 20),

@@ -12,11 +12,7 @@ class ApiDebugLogger {
   static final Interceptor dioInterceptor = ApiDebugInterceptor();
 
   static void _print(String message) {
-    if (!kDebugMode) return;
-    for (final line in message.split('\n')) {
-      print(line);
-      print('\$print debug $line');
-    }
+    // Disabled all console logging for request/response, headers, payloads, body, session data.
   }
 
   static http.Client wrapClient(http.Client client) {
@@ -29,14 +25,7 @@ class ApiDebugLogger {
     required Map<String, String> headers,
     required dynamic body,
   }) {
-    if (!kDebugMode) return;
-    final String timestamp = DateTime.now().toString();
-    _print('[API REQUEST]');
-    _print('  URL            : $url');
-    _print('  HTTP METHOD    : ${method.toUpperCase()}');
-    _print('  HEADERS        : $headers');
-    _print('  REQUEST PAYLOAD: ${_stringifyBody(body)}');
-    _print('  TIMESTAMP      : $timestamp');
+    // Disabled
   }
 
   static String _getStatusText(int code) {
@@ -74,14 +63,7 @@ class ApiDebugLogger {
     required Duration? duration,
     String? statusText,
   }) {
-    if (!kDebugMode) return;
-    final int durationMs = duration?.inMilliseconds ?? 0;
-    _print('[API RESPONSE]');
-    _print('  STATUS CODE    : $statusCode');
-    _print('  STATUS TEXT    : ${statusText ?? _getStatusText(statusCode)}');
-    _print('  RESPONSE DATA  : ${_stringifyBody(responseBody)}');
-    _print('  RESPONSE TIME  : $durationMs ms');
-    _print('  URL            : $url');
+    // Disabled
   }
 
   static void logError({
@@ -92,14 +74,12 @@ class ApiDebugLogger {
     required StackTrace? stackTrace,
   }) {
     if (!kDebugMode) return;
-    _print('[API ERROR]');
-    _print('  ERROR MESSAGE  : $message');
-    _print('  HTTP STATUS    : ${statusCode ?? "N/A"}');
-    _print('  RESPONSE BODY  : ${_stringifyBody(errorResponse)}');
-    _print('  REQUEST URL    : $url');
-    if (stackTrace != null) {
-      _print('  STACK TRACE    :');
-      _print(stackTrace.toString());
+    if (statusCode == null || statusCode >= 500) {
+      // Print only unexpected exceptions/critical server errors
+      print('[CRITICAL API ERROR] URL: $url | Message: $message');
+      if (stackTrace != null) {
+        print(stackTrace.toString());
+      }
     }
   }
 
@@ -107,61 +87,7 @@ class ApiDebugLogger {
     String? eventName,
     String? sessionStatus,
   }) async {
-    if (!kDebugMode) return;
-
-    try {
-      final secureStorage = await SecureStorageService.getInstance();
-      final prefs = await SharedPreferences.getInstance();
-
-      String userId = secureStorage.readSecure('userid');
-      if (userId.isEmpty) {
-        userId =
-            prefs.getString('user_id') ??
-            prefs.getInt('auth_id')?.toString() ??
-            'N/A';
-      }
-
-      String deviceId = secureStorage.readSecure('device_id');
-      if (deviceId.isEmpty) {
-        deviceId = prefs.getString('user_device_id') ?? 'N/A';
-      }
-
-      String appName = secureStorage.readSecure('app_name');
-      if (appName.isEmpty) {
-        appName = 'Circuit Point';
-      }
-
-      String appVersion = secureStorage.readSecure('version');
-      if (appVersion.isEmpty) {
-        appVersion = '1.0.0';
-      }
-
-      String softwareVersion = secureStorage.readSecure('software_version');
-      if (softwareVersion.isEmpty) {
-        softwareVersion = '1.4.1';
-      }
-
-      final bool isLoggedIn = prefs.getBool('is_logged_in') ?? false;
-      final String loginStatus = isLoggedIn ? 'LOGGED_IN' : 'LOGGED_OUT';
-
-      final String computedSessionStatus =
-          sessionStatus ?? (isLoggedIn ? 'VALID' : 'INVALID');
-
-      _print('==================== SESSION INFO ===================');
-      if (eventName != null) {
-        _print('EVENT: $eventName');
-      }
-      _print('USER ID: $userId');
-      _print('DEVICE ID: $deviceId');
-      _print('APP NAME: $appName');
-      _print('APP VERSION: $appVersion');
-      _print('SOFTWARE VERSION: $softwareVersion');
-      _print('LOGIN STATUS: $loginStatus');
-      _print('SESSION STATUS: $computedSessionStatus');
-      _print('========================================================');
-    } catch (e) {
-      _print('Error logging session info: $e');
-    }
+    // Disabled
   }
 
   static String _stringifyBody(dynamic body) {
