@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class StorageService {
@@ -91,9 +92,102 @@ class StorageService {
   Future<bool> setAuthToken(String value) async =>
       await _prefs?.setString(keyAuthToken, value) ?? false;
 
+  static const String keyUserCategories = 'user_categories';
+  static const String keyUserPrimaryCategories = 'user_primary_categories';
+  static const String keyUserSubCategories = 'user_sub_categories';
+
   String get userId => _prefs?.getString(keyUserId) ?? '';
   Future<bool> setUserId(String value) async =>
       await _prefs?.setString(keyUserId, value) ?? false;
+
+  List<String> get userCategories => userPrimaryCategories.isNotEmpty || userSubCategories.isNotEmpty
+      ? [...userPrimaryCategories, ...userSubCategories]
+      : _getList(keyUserCategories);
+
+  List<String> get userPrimaryCategories => _getList(keyUserPrimaryCategories);
+  Future<bool> setUserPrimaryCategories(List<String> categories) async => _setList(keyUserPrimaryCategories, categories);
+
+  List<String> get userSubCategories => _getList(keyUserSubCategories);
+  Future<bool> setUserSubCategories(List<String> categories) async => _setList(keyUserSubCategories, categories);
+
+  List<String> _getList(String key) {
+    try {
+      final List<String>? list = _prefs?.getStringList(key);
+      if (list != null && list.isNotEmpty) return list;
+    } catch (_) {}
+    try {
+      final String? jsonStr = _prefs?.getString(key);
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final decoded = jsonDecode(jsonStr);
+        if (decoded is List) return decoded.map((e) => e.toString()).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<bool> _setList(String key, List<String> list) async {
+    try {
+      await _prefs?.setString(key, jsonEncode(list));
+    } catch (_) {}
+    return await _prefs?.setStringList(key, list) ?? false;
+  }
+
+  Future<bool> setUserCategories(List<String> categories) async {
+    return await _setList(keyUserCategories, categories);
+  }
+
+  static StorageService get currentInstance {
+    _instance ??= StorageService._();
+    return _instance!;
+  }
+
+  bool isCategoryAllowed(dynamic itemOrCategory) {
+    final primaryList = userPrimaryCategories;
+    final subList = userSubCategories;
+
+    // Rule: If user has no categories assigned from Business CRE API, hide all records
+    if (primaryList.isEmpty && subList.isEmpty) return false;
+
+    if (itemOrCategory is String) {
+      if (itemOrCategory.trim().isEmpty) return false;
+      final normItem = itemOrCategory.trim().toLowerCase();
+      final allAllowed = [...primaryList, ...subList];
+      return allAllowed.any((c) {
+        final normC = c.trim().toLowerCase();
+        return normItem == normC || normItem.contains(normC) || normC.contains(normItem);
+      });
+    } else if (itemOrCategory is Map) {
+      final List<String> allRecordStrings = [];
+      itemOrCategory.forEach((key, val) {
+        if (val != null && val.toString().trim().isNotEmpty) {
+          allRecordStrings.add(val.toString().trim().toLowerCase());
+        }
+      });
+
+      if (allRecordStrings.isEmpty) return false;
+
+      // 1. Primary Category Match Check:
+      bool matchesPrimary = true;
+      if (primaryList.isNotEmpty) {
+        matchesPrimary = primaryList.any((p) {
+          final normP = p.trim().toLowerCase();
+          return allRecordStrings.any((s) => s == normP || s.contains(normP) || normP.contains(s));
+        });
+      }
+
+      // 2. Sub Category Match Check:
+      bool matchesSub = true;
+      if (subList.isNotEmpty) {
+        matchesSub = subList.any((sub) {
+          final normS = sub.trim().toLowerCase();
+          return allRecordStrings.any((s) => s == normS || s.contains(normS) || normS.contains(s));
+        });
+      }
+
+      return matchesPrimary && matchesSub;
+    }
+    return false;
+  }
 
   bool get isDarkMode => _prefs?.getBool(keyIsDarkMode) ?? true;
   Future<bool> setDarkMode(bool value) async =>

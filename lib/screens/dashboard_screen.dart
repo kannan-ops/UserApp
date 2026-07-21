@@ -92,14 +92,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     });
     _scrollController.addListener(_scrollListener);
     _updateTime();
-    int refreshCounter = 0;
     _timeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       _updateTime();
-      refreshCounter++;
-      if (refreshCounter >= 5) {
-        refreshCounter = 0;
-        _autoRefreshData();
-      }
     });
     _loadData();
   }
@@ -138,9 +132,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return months[month - 1];
   }
 
+  StorageService? _storageInstance;
+
   Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
     final storageService = ref.read(storageServiceProvider);
+    _storageInstance = storageService;
+    if (storageService.userCategories.isEmpty && storageService.userId.isNotEmpty) {
+      try {
+        final authService = ref.read(authServiceProvider);
+        await authService.fetchAndStoreUserCategories(storageService.userId);
+      } catch (_) {}
+    }
     setState(() {
       _localAvatarPath = prefs.getString('persistent_profile_photo_path');
       _locationName = prefs.getString('user_location_name');
@@ -892,7 +895,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final displayName = (_userName != null && _userName!.isNotEmpty) ? _userName! : "";
 
-    return ScreenUtilInit(
+    return
+      ScreenUtilInit(
       designSize: const Size(390, 844),
       minTextAdapt: true,
       builder: (context, child) => Scaffold(
@@ -1780,6 +1784,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final filtered = items.where((item) {
       if (item is! Map) return false;
 
+      // 0. Category Filter
+      final storage = _storageInstance ?? StorageService.currentInstance;
+      if (!storage.isCategoryAllowed(item)) {
+        return false;
+      }
+
       // 1. Search Query Filter
       final name = (item["name"] ?? "").toString().toLowerCase();
       final company = (item["company"] ?? "").toString().toLowerCase();
@@ -1818,7 +1828,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               Icon(Icons.feed_outlined, size: 48.r, color: isDarkMode ? Colors.white24 : Colors.black26),
               SizedBox(height: 10.h),
               Text(
-                "No records match the filters",
+                "No data available for your assigned categories.",
                 style: GoogleFonts.outfit(
                   fontSize: 14.sp,
                   color: isDarkMode ? Colors.white38 : Colors.black38,

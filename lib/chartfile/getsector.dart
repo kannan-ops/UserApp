@@ -9,6 +9,7 @@ import 'editsec.dart';
 import 'chat_screen.dart';
 import 'package:enquiry_app/widgets/reply_form_dialog.dart';
 import 'package:enquiry_app/services/storage_service.dart';
+import 'package:enquiry_app/utils/share_helper.dart';
 
 class GetById extends StatefulWidget {
   const GetById({super.key});
@@ -22,6 +23,8 @@ class _GetByIdState extends State<GetById> {
   String _searchQuery = "";
   String _selectedFilter = "all";
   final String apiUrl = "https://bulk.srivagroups.in/api/product?limit=1000000";
+  bool _isSelectionMode = false;
+  final Set<int> _selectedIds = {};
 
   final Map<int, bool> _unreadChats = {};
   final Map<int, List<dynamic>> _chatMessages = {};
@@ -802,6 +805,7 @@ class _GetByIdState extends State<GetById> {
     final storage = await StorageService.getInstance();
     if (mounted) {
       setState(() {
+        _storageInstance = storage;
         _isAdmin = storage.userRole.toLowerCase() == 'admin';
       });
     }
@@ -858,20 +862,229 @@ class _GetByIdState extends State<GetById> {
     }
   }
 
+  StorageService? _storageInstance;
+
+  List<dynamic> _getFilteredProducts() {
+    final storage = _storageInstance ?? StorageService.currentInstance;
+    List<dynamic> filtered = _products.where((p) {
+      if (p is Map) {
+        if (!storage.isCategoryAllowed(p)) {
+          return false;
+        }
+      }
+      final name = (p["name"] ?? p["title"] ?? "").toString().toLowerCase();
+      return name.contains(_searchQuery);
+    }).toList();
+
+    if (_selectedFilter == "last") {
+      final sorted = List.from(filtered);
+      sorted.sort((a, b) {
+        final idA = a["id"] is int ? a["id"] : int.tryParse(a["id"].toString()) ?? 0;
+        final idB = b["id"] is int ? b["id"] : int.tryParse(b["id"].toString()) ?? 0;
+        return idB.compareTo(idA);
+      });
+      filtered = sorted.isNotEmpty ? [sorted.first] : [];
+    } else if (_selectedFilter == "received") {
+      filtered = filtered.where((p) {
+        final id = p["id"] is int ? p["id"] : int.tryParse(p["id"].toString()) ?? 0;
+        final msgs = _chatMessages[id] ?? [];
+        if (msgs.isEmpty) return false;
+        final lastMsg = msgs.last;
+        final sender = lastMsg["sender"]?.toString().toLowerCase() ?? "";
+        return sender != "admin" && sender.isNotEmpty;
+      }).toList();
+    } else if (_selectedFilter == "unreplied") {
+      filtered = filtered.where((p) {
+        final id = p["id"] is int ? p["id"] : int.tryParse(p["id"].toString()) ?? 0;
+        final msgs = _chatMessages[id] ?? [];
+        return !msgs.any((m) => m["sender"]?.toString().toLowerCase() == "admin");
+      }).toList();
+    } else if (_selectedFilter == "sent") {
+      filtered = filtered.where((p) {
+        final id = p["id"] is int ? p["id"] : int.tryParse(p["id"].toString()) ?? 0;
+        final msgs = _chatMessages[id] ?? [];
+        return msgs.any((m) => m["sender"]?.toString().toLowerCase() == "admin");
+      }).toList();
+    }
+    return filtered;
+  }
+
+  void _shareSingleProduct(Map<String, dynamic> p) {
+    final text = ShareHelper.formatSector(p);
+    final id = p["id"] is int ? p["id"] : int.tryParse(p["id"].toString());
+    ShareHelper.showShareBottomSheet(
+      context: context,
+      shareText: text,
+      title: "Share Sector #${p["id"]}",
+      phone: p["mobile"]?.toString() ?? p["phone"]?.toString(),
+      email: p["email"]?.toString(),
+      clientName: p["title"]?.toString() ?? p["name"]?.toString(),
+      referenceId: id,
+      module: "sector",
+    );
+  }
+
+  void _shareSelectedProducts() {
+    if (_selectedIds.isEmpty) return;
+    final selected = _products.where((p) {
+      final id = p["id"] is int ? p["id"] : int.tryParse(p["id"].toString()) ?? 0;
+      return _selectedIds.contains(id);
+    }).toList();
+
+    if (selected.isEmpty) return;
+
+    final first = Map<String, dynamic>.from(selected.first);
+    final firstId = first["id"] is int ? first["id"] : int.tryParse(first["id"].toString());
+
+    if (selected.length == 1) {
+      _shareSingleProduct(first);
+      return;
+    }
+
+    final text = ShareHelper.formatMultipleItems(selected, "Sectors");
+    ShareHelper.showShareBottomSheet(
+      context: context,
+      shareText: text,
+      title: "Share Selected Sectors (${selected.length})",
+      referenceId: firstId,
+      module: "sector",
+      clientName: first["title"]?.toString() ?? first["name"]?.toString(),
+    );
+  }
+
+  void _shareAllProducts() {
+    final visible = _getFilteredProducts();
+    if (visible.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No sectors available to share")),
+      );
+      return;
+    }
+
+    if (visible.length == 1) {
+      _shareSingleProduct(Map<String, dynamic>.from(visible.first));
+      return;
+    }
+
+    final text = ShareHelper.formatMultipleItems(visible, "Sectors");
+    ShareHelper.showShareBottomSheet(
+      context: context,
+      shareText: text,
+      title: "Share All Sectors (${visible.length})",
+    );
+  }
+
+  void _selectAllVisible() {
+    final visible = _getFilteredProducts();
+    setState(() {
+      _isSelectionMode = true;
+      for (final item in visible) {
+        final id = item["id"] is int ? item["id"] : int.tryParse(item["id"].toString()) ?? 0;
+        if (id != 0) _selectedIds.add(id);
+      }
+    });
+  }
+
+  Future<void> _deleteSelectedProducts() async {
+    if (_selectedIds.isEmpty) return;
+
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text("Delete Selected (${_selectedIds.length})"),
+        content: Text("Are you sure you want to delete ${_selectedIds.length} selected sector(s)? This action cannot be undone."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text("Delete"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    int successCount = 0;
+    final idsList = _selectedIds.toList();
+    for (final id in idsList) {
+      try {
+        final res = await ApiDebugLogger.httpClient.delete(
+          Uri.parse("https://bulk.srivagroups.in/api/product/$id"),
+        );
+        if (res.statusCode == 200 || res.statusCode == 204) {
+          successCount++;
+        }
+      } catch (_) {}
+    }
+
+    if (mounted) Navigator.pop(context);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Successfully deleted $successCount of ${idsList.length} selected sectors."),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      setState(() {
+        _selectedIds.clear();
+        _isSelectionMode = false;
+        futureProducts = fetchProducts();
+      });
+    }
+  }
+
+  void _cancelSelection() {
+    setState(() {
+      _isSelectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text("Product List"),
-        backgroundColor: Color(0xFF3B5BDB),
+        title: Text(_isSelectionMode ? "${_selectedIds.length} Selected" : "Product List"),
+        backgroundColor: colorScheme.primary,
+        foregroundColor: colorScheme.onPrimary,
+        leading: _isSelectionMode
+            ? IconButton(
+                icon: Icon(Icons.close_rounded, color: colorScheme.onPrimary),
+                onPressed: _cancelSelection,
+              )
+            : null,
         actions: [
+          if (!_isSelectionMode)
+            IconButton(
+              icon: Icon(Icons.checklist_rounded, color: colorScheme.onPrimary),
+              tooltip: "Select Items",
+              onPressed: () {
+                setState(() {
+                  _isSelectionMode = true;
+                });
+              },
+            ),
           IconButton(
-            icon: const Icon(Icons.download_rounded, color: Colors.white),
+            icon: Icon(Icons.download_rounded, color: colorScheme.onPrimary),
             tooltip: "Export CSV Report",
             onPressed: () => _exportToCSV(context),
           ),
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+            icon: Icon(Icons.refresh_rounded, color: colorScheme.onPrimary),
             onPressed: () {
               setState(() {
                 futureProducts = fetchProducts();
@@ -880,6 +1093,135 @@ class _GetByIdState extends State<GetById> {
           ),
         ],
       ),
+      bottomNavigationBar: _isSelectionMode
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: colorScheme.shadow.withOpacity(0.12),
+                    blurRadius: 10,
+                    offset: const Offset(0, -3),
+                  ),
+                ],
+                border: Border(
+                  top: BorderSide(
+                    color: colorScheme.outlineVariant.withOpacity(0.5),
+                  ),
+                ),
+              ),
+              child: SafeArea(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    InkWell(
+                      onTap: () {
+                        final visible = _getFilteredProducts();
+                        final isAllSelected = visible.isNotEmpty && visible.every((item) {
+                          final id = item["id"] is int ? item["id"] : int.tryParse(item["id"].toString()) ?? 0;
+                          return _selectedIds.contains(id);
+                        });
+                        setState(() {
+                          if (isAllSelected) {
+                            _selectedIds.clear();
+                          } else {
+                            for (final item in visible) {
+                              final id = item["id"] is int ? item["id"] : int.tryParse(item["id"].toString()) ?? 0;
+                              if (id != 0) _selectedIds.add(id);
+                            }
+                          }
+                        });
+                      },
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.select_all_rounded, color: colorScheme.primary),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Select All",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    InkWell(
+                      onTap: _selectedIds.isEmpty ? null : _shareSelectedProducts,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.share_rounded,
+                            color: _selectedIds.isEmpty
+                                ? colorScheme.onSurface.withOpacity(0.38)
+                                : colorScheme.primary,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Share Selected",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: _selectedIds.isEmpty
+                                  ? colorScheme.onSurface.withOpacity(0.38)
+                                  : colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    InkWell(
+                      onTap: _selectedIds.isEmpty ? null : _deleteSelectedProducts,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.delete_rounded,
+                            color: _selectedIds.isEmpty
+                                ? colorScheme.onSurface.withOpacity(0.38)
+                                : colorScheme.error,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Remove Selected",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: _selectedIds.isEmpty
+                                  ? colorScheme.onSurface.withOpacity(0.38)
+                                  : colorScheme.error,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    InkWell(
+                      onTap: _cancelSelection,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.close_rounded, color: colorScheme.onSurfaceVariant),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Cancel",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : null,
       body: Column(
         children: [
           Container(
@@ -936,7 +1278,11 @@ class _GetByIdState extends State<GetById> {
             }
 
             final products = snapshot.data!;
+            final storage = _storageInstance ?? StorageService.currentInstance;
             List<dynamic> filteredProducts = products.where((p) {
+              if (p is Map && !storage.isCategoryAllowed(p)) {
+                return false;
+              }
               final name = (p["name"] ?? "").toString().toLowerCase();
               return name.contains(_searchQuery);
             }).toList();
@@ -1020,7 +1366,7 @@ class _GetByIdState extends State<GetById> {
                               Icon(Icons.filter_list_off_rounded, size: 48, color: Colors.grey.shade400),
                               const SizedBox(height: 12),
                               Text(
-                                "No Matching Sectors Found",
+                                "No data available for your assigned categories.",
                                 style: TextStyle(fontSize: 16, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
                               ),
                             ],
@@ -1124,6 +1470,20 @@ class _GetByIdState extends State<GetById> {
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
+                                    Checkbox(
+                                      value: _selectedIds.contains(id),
+                                      activeColor: const Color(0xFF3B5BDB),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                      onChanged: (val) {
+                                        setState(() {
+                                          if (val == true) {
+                                            _selectedIds.add(id);
+                                          } else {
+                                            _selectedIds.remove(id);
+                                          }
+                                        });
+                                      },
+                                    ),
                                     Expanded(
                                       child: Wrap(
                                         crossAxisAlignment: WrapCrossAlignment.center,

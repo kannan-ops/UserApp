@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'dart:io' show Platform;
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
@@ -103,6 +104,40 @@ class AuthService {
         print("LOGIN SUCCESS");
         await _storageService.setUserDeviceId(deviceId);
 
+        debugPrint('================ LOGIN API DEBUG ================');
+        debugPrint('Status Code: ${response.statusCode}');
+        debugPrint('\nFull Login Response:');
+        debugPrint('${response.data}', wrapWidth: 4096);
+
+        dynamic findField(dynamic data, List<String> fieldKeys) {
+          if (data is Map) {
+            for (var entry in data.entries) {
+              final k = entry.key.toString().toLowerCase();
+              if (fieldKeys.any((fk) => k == fk || k.contains(fk))) {
+                return entry.value;
+              }
+              final res = findField(entry.value, fieldKeys);
+              if (res != null) return res;
+            }
+          } else if (data is List) {
+            for (var item in data) {
+              final res = findField(item, fieldKeys);
+              if (res != null) return res;
+            }
+          }
+          return null;
+        }
+
+        final resBody = response.data;
+        debugPrint('\nUser Token:\n${findField(resBody, ['user_token', 'usertoken'])}');
+        debugPrint('\nAccess Token:\n${findField(resBody, ['access_token', 'accesstoken'])}');
+        debugPrint('\nBearer Token:\n${findField(resBody, ['bearer_token', 'bearertoken'])}');
+        debugPrint('\nAuth Token:\n${findField(resBody, ['auth_token', 'authtoken', 'token'])}');
+        debugPrint('\nJWT Token:\n${findField(resBody, ['jwt_token', 'jwttoken', 'jwt'])}');
+        debugPrint('\nSession Token:\n${findField(resBody, ['session_token', 'sessiontoken', 'session_id'])}');
+        debugPrint('\nUser Main ID:\n${findField(resBody, ['user_main_id', 'usermainid'])}');
+        debugPrint('=================================================');
+
         final storage = _StorageDebugAdapter(_storageService);
 
         final responseData = jsonDecode(response.body);
@@ -172,6 +207,11 @@ class AuthService {
 
         if (userMainId.isNotEmpty) {
           await _storageService.setUserId(userMainId);
+          try {
+            await fetchAndStoreUserCategories(userMainId);
+          } catch (e) {
+            print("Error fetching business categories on login: $e");
+          }
         }
         await _storageService.setUserName(
           userName.isNotEmpty ? userName : (email.isNotEmpty ? email.split('@').first : ''),
@@ -269,6 +309,93 @@ class AuthService {
       print("LOGIN FAILED");
       throw Exception("An unexpected error occurred: $e");
     }
+  }
+
+  Future<List<String>> fetchAndStoreUserCategories(String userMainId) async {
+    if (userMainId.isEmpty) return [];
+    try {
+      final String url = "https://user.jobes24x7.com/api/business-cre/main/$userMainId";
+      final prefs = await SharedPreferences.getInstance();
+      final String? savedCookies = prefs.getString('stored_cookies');
+      final String token = _storageService.authToken;
+
+      final Map<String, String> headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        if (token.isNotEmpty) 'Authorization': 'Bearer $token',
+        if (savedCookies != null && savedCookies.isNotEmpty) 'Cookie': savedCookies,
+      };
+
+      final response = await _dio.get(
+        url,
+        options: Options(headers: headers),
+      );
+
+      debugPrint('================ BUSINESS API DEBUG ================');
+      debugPrint('user_main_id: $userMainId');
+      debugPrint('Request URL: $url');
+      debugPrint('Status Code: ${response.statusCode}');
+      debugPrint('Response Headers: ${response.headers}');
+      debugPrint('${response.data}', wrapWidth: 4096);
+      debugPrint('====================================================');
+
+      if (response.statusCode == 200) {
+        final data = response.data is Map
+            ? response.data
+            : (response.data is String ? jsonDecode(response.data.toString()) : response.data);
+
+        final Set<String> primarySet = {};
+        final Set<String> subSet = {};
+
+        void findCategories(dynamic obj) {
+          if (obj is Map) {
+            if (obj.containsKey('primary_categories') && obj['primary_categories'] is List) {
+              for (var p in obj['primary_categories']) {
+                if (p is Map && p['name'] != null && p['name'].toString().trim().isNotEmpty) {
+                  primarySet.add(p['name'].toString().trim());
+                } else if (p is String && p.trim().isNotEmpty) {
+                  primarySet.add(p.trim());
+                }
+              }
+            }
+            if (obj.containsKey('sub_categories') && obj['sub_categories'] is List) {
+              for (var s in obj['sub_categories']) {
+                if (s is Map && s['name'] != null && s['name'].toString().trim().isNotEmpty) {
+                  subSet.add(s['name'].toString().trim());
+                } else if (s is String && s.trim().isNotEmpty) {
+                  subSet.add(s.trim());
+                }
+              }
+            }
+            for (var value in obj.values) {
+              findCategories(value);
+            }
+          } else if (obj is List) {
+            for (var elem in obj) {
+              findCategories(elem);
+            }
+          }
+        }
+
+        findCategories(data);
+
+        final List<String> primaryList = primarySet.toList();
+        final List<String> subList = subSet.toList();
+
+        await _storageService.setUserPrimaryCategories(primaryList);
+        await _storageService.setUserSubCategories(subList);
+
+        print("Primary Categories:");
+        print(primaryList);
+        print("\nSub Categories:");
+        print(subList);
+
+        return [...primaryList, ...subList];
+      }
+    } catch (e) {
+      print("Error fetching Business CRE categories for $userMainId: $e");
+    }
+    return [];
   }
 
   Future<bool> checkUserExists(String email) async {

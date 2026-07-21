@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:enquiry_app/utils/api_debug_logger.dart';
+import 'package:enquiry_app/services/storage_service.dart';
 import 'chat_screen.dart';
 
 class ChatThreadsScreen extends StatefulWidget {
@@ -27,13 +28,22 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with SingleTicker
   final Map<String, List<dynamic>> _messagesCache = {};
   final Map<String, bool> _isLoadingMessages = {};
 
+  StorageService? _storageInstance;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _fetchBulkOrders();
-    _fetchEnquiries();
-    _fetchSectors();
+    StorageService.getInstance().then((s) {
+      if (mounted) {
+        setState(() {
+          _storageInstance = s;
+        });
+        _fetchBulkOrders();
+        _fetchEnquiries();
+        _fetchSectors();
+      }
+    });
   }
 
   @override
@@ -109,6 +119,12 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with SingleTicker
           final data = decoded['data'];
           if (data is List) list = data;
         }
+        if (_storageInstance != null) {
+          list = list.where((item) {
+            final cat = item["category"] ?? item["category_name"] ?? item["company"] ?? item["product"];
+            return _storageInstance!.isCategoryAllowed(cat?.toString());
+          }).toList();
+        }
         setState(() {
           _bulkOrders = list;
         });
@@ -134,6 +150,12 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with SingleTicker
           final data = decoded['data'];
           if (data is List) list = data;
         }
+        if (_storageInstance != null) {
+          list = list.where((item) {
+            final cat = item["category"] ?? item["category_name"] ?? item["company"] ?? item["subject"];
+            return _storageInstance!.isCategoryAllowed(cat?.toString());
+          }).toList();
+        }
         setState(() {
           _enquiries = list;
         });
@@ -158,6 +180,12 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with SingleTicker
         } else if (decoded is Map && decoded.containsKey('data')) {
           final data = decoded['data'];
           if (data is List) list = data;
+        }
+        if (_storageInstance != null) {
+          list = list.where((item) {
+            final cat = item["category"] ?? item["category_name"] ?? item["sector_title"] ?? item["title"] ?? item["name"];
+            return _storageInstance!.isCategoryAllowed(cat?.toString());
+          }).toList();
         }
         setState(() {
           _sectors = list;

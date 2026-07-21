@@ -10,6 +10,7 @@ import 'chat_screen.dart';
 import 'package:enquiry_app/widgets/sms_chat_dialog.dart';
 import 'package:enquiry_app/widgets/reply_form_dialog.dart';
 import 'package:enquiry_app/services/storage_service.dart';
+import 'package:enquiry_app/utils/share_helper.dart';
 
 class GetEnquiry extends StatefulWidget {
   const GetEnquiry({super.key});
@@ -24,6 +25,8 @@ class _GetEnquiryState extends State<GetEnquiry> {
   String _selectedFilter = "all";
   final Set<int> _expandedIds = {};
   bool _isAdmin = false;
+  bool _isSelectionMode = false;
+  final Set<int> _selectedIds = {};
 
   final Map<int, bool> _unreadChats = {};
   final Map<int, List<dynamic>> _chatMessages = {};
@@ -858,10 +861,13 @@ class _GetEnquiryState extends State<GetEnquiry> {
     super.dispose();
   }
 
+  StorageService? _storageInstance;
+
   Future<void> _loadAdminStatus() async {
     final storage = await StorageService.getInstance();
     if (mounted) {
       setState(() {
+        _storageInstance = storage;
         _isAdmin = storage.userRole.toLowerCase() == 'admin';
       });
     }
@@ -919,20 +925,195 @@ class _GetEnquiryState extends State<GetEnquiry> {
     }
   }
 
+  List<dynamic> _getFilteredEnquiries() {
+    final storage = _storageInstance ?? StorageService.currentInstance;
+    List<dynamic> filtered = _enquiries.where((e) {
+      if (e is Map) {
+        if (!storage.isCategoryAllowed(e)) {
+          return false;
+        }
+      }
+      final name = (e["name"] ?? "").toString().toLowerCase();
+      final subject = (e["subject"] ?? "").toString().toLowerCase();
+      return name.contains(_searchQuery) || subject.contains(_searchQuery);
+    }).toList();
+
+    if (_selectedFilter == "last") {
+      final sorted = List.from(filtered);
+      sorted.sort((a, b) {
+        final idA = a["id"] is int ? a["id"] : int.tryParse(a["id"].toString()) ?? 0;
+        final idB = b["id"] is int ? b["id"] : int.tryParse(b["id"].toString()) ?? 0;
+        return idB.compareTo(idA);
+      });
+      filtered = sorted.isNotEmpty ? [sorted.first] : [];
+    } else if (_selectedFilter == "received") {
+      filtered = filtered.where((e) {
+        final id = e["id"] is int ? e["id"] : int.tryParse(e["id"].toString()) ?? 0;
+        final msgs = _chatMessages[id] ?? [];
+        if (msgs.isEmpty) return false;
+        final lastMsg = msgs.last;
+        final sender = lastMsg["sender"]?.toString().toLowerCase() ?? "";
+        return sender != "admin" && sender.isNotEmpty;
+      }).toList();
+    } else if (_selectedFilter == "unreplied") {
+      filtered = filtered.where((e) {
+        final id = e["id"] is int ? e["id"] : int.tryParse(e["id"].toString()) ?? 0;
+        final msgs = _chatMessages[id] ?? [];
+        return !msgs.any((m) => m["sender"]?.toString().toLowerCase() == "admin");
+      }).toList();
+    } else if (_selectedFilter == "sent") {
+      filtered = filtered.where((e) {
+        final id = e["id"] is int ? e["id"] : int.tryParse(e["id"].toString()) ?? 0;
+        final msgs = _chatMessages[id] ?? [];
+        return msgs.any((m) => m["sender"]?.toString().toLowerCase() == "admin");
+      }).toList();
+    }
+    return filtered;
+  }
+
+  void _shareSingleEnquiry(Map<String, dynamic> e) {
+    final text = ShareHelper.formatEnquiry(e);
+    final id = e["id"] is int ? e["id"] : int.tryParse(e["id"].toString());
+    ShareHelper.showShareBottomSheet(
+      context: context,
+      shareText: text,
+      title: "Share Enquiry #${e["id"]}",
+      phone: e["mobile"]?.toString() ?? e["phone"]?.toString(),
+      email: e["email"]?.toString(),
+      clientName: e["name"]?.toString(),
+      referenceId: id,
+      module: "enquiry",
+    );
+  }
+
+  void _shareSelectedEnquiries() {
+    if (_selectedIds.isEmpty) return;
+    final selected = _enquiries.where((e) {
+      final id = e["id"] is int ? e["id"] : int.tryParse(e["id"].toString()) ?? 0;
+      return _selectedIds.contains(id);
+    }).toList();
+
+    if (selected.isEmpty) return;
+
+    final first = Map<String, dynamic>.from(selected.first);
+    final firstId = first["id"] is int ? first["id"] : int.tryParse(first["id"].toString());
+
+    if (selected.length == 1) {
+      _shareSingleEnquiry(first);
+      return;
+    }
+
+    final text = ShareHelper.formatMultipleItems(selected, "Enquiries");
+    ShareHelper.showShareBottomSheet(
+      context: context,
+      shareText: text,
+      title: "Share Selected Enquiries (${selected.length})",
+      referenceId: firstId,
+      module: "enquiry",
+      clientName: first["name"]?.toString(),
+    );
+  }
+
+  void _cancelSelection() {
+    setState(() {
+      _isSelectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  Future<void> _deleteSelectedEnquiries() async {
+    if (_selectedIds.isEmpty) return;
+
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text("Delete Selected (${_selectedIds.length})"),
+        content: Text("Are you sure you want to delete ${_selectedIds.length} selected enquiry(ies)? This action cannot be undone."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            child: const Text("Delete"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    int successCount = 0;
+    final idsList = _selectedIds.toList();
+    for (final id in idsList) {
+      try {
+        final res = await ApiDebugLogger.httpClient.delete(
+          Uri.parse("https://bulk.srivagroups.in/api/enquiries/$id"),
+        );
+        if (res.statusCode == 200 || res.statusCode == 201 || res.statusCode == 204) {
+          successCount++;
+        }
+      } catch (_) {}
+    }
+
+    if (mounted) Navigator.pop(context);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Successfully deleted $successCount of ${idsList.length} selected enquiries."),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      setState(() {
+        _selectedIds.clear();
+        _isSelectionMode = false;
+        futureEnquiries = fetchEnquiries();
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text("Enquiries"),
-        backgroundColor: Color(0xFF3B5BDB),
+        title: Text(_isSelectionMode ? "${_selectedIds.length} Selected" : "Enquiries"),
+        backgroundColor: colorScheme.primary,
+        foregroundColor: colorScheme.onPrimary,
+        leading: _isSelectionMode
+            ? IconButton(
+                icon: Icon(Icons.close_rounded, color: colorScheme.onPrimary),
+                onPressed: _cancelSelection,
+              )
+            : null,
         actions: [
+          if (!_isSelectionMode)
+            IconButton(
+              icon: Icon(Icons.checklist_rounded, color: colorScheme.onPrimary),
+              tooltip: "Select Items",
+              onPressed: () {
+                setState(() {
+                  _isSelectionMode = true;
+                });
+              },
+            ),
           IconButton(
-            icon: const Icon(Icons.download_rounded, color: Colors.white),
+            icon: Icon(Icons.download_rounded, color: colorScheme.onPrimary),
             tooltip: "Export CSV Report",
             onPressed: () => _exportToCSV(context),
           ),
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+            icon: Icon(Icons.refresh_rounded, color: colorScheme.onPrimary),
             onPressed: () {
               setState(() {
                 futureEnquiries = fetchEnquiries();
@@ -941,6 +1122,135 @@ class _GetEnquiryState extends State<GetEnquiry> {
           ),
         ],
       ),
+      bottomNavigationBar: _isSelectionMode
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: colorScheme.shadow.withOpacity(0.12),
+                    blurRadius: 10,
+                    offset: const Offset(0, -3),
+                  ),
+                ],
+                border: Border(
+                  top: BorderSide(
+                    color: colorScheme.outlineVariant.withOpacity(0.5),
+                  ),
+                ),
+              ),
+              child: SafeArea(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    InkWell(
+                      onTap: () {
+                        final visible = _getFilteredEnquiries();
+                        final isAllSelected = visible.isNotEmpty && visible.every((item) {
+                          final id = item["id"] is int ? item["id"] : int.tryParse(item["id"].toString()) ?? 0;
+                          return _selectedIds.contains(id);
+                        });
+                        setState(() {
+                          if (isAllSelected) {
+                            _selectedIds.clear();
+                          } else {
+                            for (final item in visible) {
+                              final id = item["id"] is int ? item["id"] : int.tryParse(item["id"].toString()) ?? 0;
+                              if (id != 0) _selectedIds.add(id);
+                            }
+                          }
+                        });
+                      },
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.select_all_rounded, color: colorScheme.primary),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Select All",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    InkWell(
+                      onTap: _selectedIds.isEmpty ? null : _shareSelectedEnquiries,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.share_rounded,
+                            color: _selectedIds.isEmpty
+                                ? colorScheme.onSurface.withOpacity(0.38)
+                                : colorScheme.primary,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Share Selected",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: _selectedIds.isEmpty
+                                  ? colorScheme.onSurface.withOpacity(0.38)
+                                  : colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    InkWell(
+                      onTap: _selectedIds.isEmpty ? null : _deleteSelectedEnquiries,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.delete_rounded,
+                            color: _selectedIds.isEmpty
+                                ? colorScheme.onSurface.withOpacity(0.38)
+                                : colorScheme.error,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Remove Selected",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: _selectedIds.isEmpty
+                                  ? colorScheme.onSurface.withOpacity(0.38)
+                                  : colorScheme.error,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    InkWell(
+                      onTap: _cancelSelection,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.close_rounded, color: colorScheme.onSurfaceVariant),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Cancel",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : null,
       body: Column(
         children: [
           Container(
@@ -1000,7 +1310,11 @@ class _GetEnquiryState extends State<GetEnquiry> {
             }
 
             final enquiries = snapshot.data!;
+            final storage = _storageInstance ?? StorageService.currentInstance;
             List<dynamic> filteredEnquiries = enquiries.where((e) {
+              if (e is Map && !storage.isCategoryAllowed(e)) {
+                return false;
+              }
               final name = (e["name"] ?? "").toString().toLowerCase();
               final subject = (e["subject"] ?? "").toString().toLowerCase();
               return name.contains(_searchQuery) || subject.contains(_searchQuery);
@@ -1085,7 +1399,7 @@ class _GetEnquiryState extends State<GetEnquiry> {
                               Icon(Icons.filter_list_off_rounded, size: 48, color: Colors.grey.shade400),
                               const SizedBox(height: 12),
                               Text(
-                                "No Matching Enquiries Found",
+                                "No data available for your assigned categories.",
                                 style: TextStyle(fontSize: 16, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
                               ),
                             ],
@@ -1201,28 +1515,59 @@ class _GetEnquiryState extends State<GetEnquiry> {
                         );
                       }
 
+                      final isSelected = _selectedIds.contains(id);
+                      final isDarkMode = theme.brightness == Brightness.dark;
+                      final cardBg = isSelected && _isSelectionMode
+                          ? colorScheme.primaryContainer.withOpacity(isDarkMode ? 0.35 : 0.2)
+                          : colorScheme.surface;
+                      final cardBorderColor = isSelected && _isSelectionMode
+                          ? colorScheme.primary
+                          : colorScheme.outlineVariant.withOpacity(0.5);
+
                       return Card(
                         margin: const EdgeInsets.only(bottom: 16),
-                        elevation: 4,
-                        shadowColor: const Color(0x223B5BDB),
+                        elevation: isSelected && _isSelectionMode ? 6 : 2,
+                        shadowColor: colorScheme.shadow.withOpacity(0.1),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(
+                            color: cardBorderColor,
+                            width: isSelected && _isSelectionMode ? 2 : 1,
+                          ),
                         ),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(16),
                           onTap: () {
-                            setState(() {
-                              if (isExpanded) {
-                                _expandedIds.remove(id);
-                              } else {
-                                _expandedIds.add(id);
-                              }
-                            });
+                            if (_isSelectionMode) {
+                              setState(() {
+                                if (_selectedIds.contains(id)) {
+                                  _selectedIds.remove(id);
+                                } else {
+                                  _selectedIds.add(id);
+                                }
+                              });
+                            } else {
+                              setState(() {
+                                if (isExpanded) {
+                                  _expandedIds.remove(id);
+                                } else {
+                                  _expandedIds.add(id);
+                                }
+                              });
+                            }
+                          },
+                          onLongPress: () {
+                            if (!_isSelectionMode) {
+                              setState(() {
+                                _isSelectionMode = true;
+                                _selectedIds.add(id);
+                              });
+                            }
                           },
                           child: Container(
                             padding: const EdgeInsets.all(18),
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: cardBg,
                               borderRadius: BorderRadius.circular(16),
                             ),
                             child: Column(
@@ -1231,6 +1576,29 @@ class _GetEnquiryState extends State<GetEnquiry> {
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
+                                    if (_isSelectionMode) ...[
+                                      Checkbox(
+                                        value: isSelected,
+                                        activeColor: colorScheme.primary,
+                                        checkColor: colorScheme.onPrimary,
+                                        side: BorderSide(
+                                          color: isSelected
+                                              ? colorScheme.primary
+                                              : colorScheme.onSurface.withOpacity(0.6),
+                                          width: 2,
+                                        ),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                        onChanged: (val) {
+                                          setState(() {
+                                            if (val == true) {
+                                              _selectedIds.add(id);
+                                            } else {
+                                              _selectedIds.remove(id);
+                                            }
+                                          });
+                                        },
+                                      ),
+                                    ],
                                     Expanded(
                                       child: Wrap(
                                         crossAxisAlignment: WrapCrossAlignment.center,

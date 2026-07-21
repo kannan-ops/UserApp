@@ -11,6 +11,7 @@ import 'chat_screen.dart';
 import 'package:enquiry_app/widgets/sms_chat_dialog.dart';
 import 'package:enquiry_app/widgets/reply_form_dialog.dart';
 import 'package:enquiry_app/services/storage_service.dart';
+import 'package:enquiry_app/utils/share_helper.dart';
 
 class getbuk extends StatefulWidget {
   const getbuk({super.key});
@@ -26,6 +27,8 @@ class _getbukState extends State<getbuk> {
   final String apiUrl = "https://bulk.srivagroups.in/api/bulk-orders?limit=1000000";
   final Set<int> _expandedIds = {};
   bool _isAdmin = false;
+  bool _isSelectionMode = false;
+  final Set<int> _selectedIds = {};
 
   final Map<int, bool> _unreadChats = {};
   final Map<int, List<dynamic>> _chatMessages = {};
@@ -814,6 +817,7 @@ class _getbukState extends State<getbuk> {
     final storage = await StorageService.getInstance();
     if (mounted) {
       setState(() {
+        _storageInstance = storage;
         _isAdmin = storage.userRole.toLowerCase() == 'admin';
       });
     }
@@ -872,20 +876,230 @@ class _getbukState extends State<getbuk> {
     }
   }
 
+  StorageService? _storageInstance;
+
+  List<dynamic> _getFilteredOrders() {
+    final storage = _storageInstance ?? StorageService.currentInstance;
+    List<dynamic> filtered = _orders.where((o) {
+      if (o is Map) {
+        if (!storage.isCategoryAllowed(o)) {
+          return false;
+        }
+      }
+      final name = (o["name"] ?? "").toString().toLowerCase();
+      final prod = (o["product"] ?? "").toString().toLowerCase();
+      return name.contains(_searchQuery) || prod.contains(_searchQuery);
+    }).toList();
+
+    if (_selectedFilter == "last") {
+      final sorted = List.from(filtered);
+      sorted.sort((a, b) {
+        final idA = a["id"] is int ? a["id"] : int.tryParse(a["id"].toString()) ?? 0;
+        final idB = b["id"] is int ? b["id"] : int.tryParse(b["id"].toString()) ?? 0;
+        return idB.compareTo(idA);
+      });
+      filtered = sorted.isNotEmpty ? [sorted.first] : [];
+    } else if (_selectedFilter == "received") {
+      filtered = filtered.where((o) {
+        final id = o["id"] is int ? o["id"] : int.tryParse(o["id"].toString()) ?? 0;
+        final msgs = _chatMessages[id] ?? [];
+        if (msgs.isEmpty) return false;
+        final lastMsg = msgs.last;
+        final sender = lastMsg["sender"]?.toString().toLowerCase() ?? "";
+        return sender != "admin" && sender.isNotEmpty;
+      }).toList();
+    } else if (_selectedFilter == "unreplied") {
+      filtered = filtered.where((o) {
+        final id = o["id"] is int ? o["id"] : int.tryParse(o["id"].toString()) ?? 0;
+        final msgs = _chatMessages[id] ?? [];
+        return !msgs.any((m) => m["sender"]?.toString().toLowerCase() == "admin");
+      }).toList();
+    } else if (_selectedFilter == "sent") {
+      filtered = filtered.where((o) {
+        final id = o["id"] is int ? o["id"] : int.tryParse(o["id"].toString()) ?? 0;
+        final msgs = _chatMessages[id] ?? [];
+        return msgs.any((m) => m["sender"]?.toString().toLowerCase() == "admin");
+      }).toList();
+    }
+    return filtered;
+  }
+
+  void _shareSingleOrder(Map<String, dynamic> o) {
+    final text = ShareHelper.formatBulkOrder(o);
+    final id = o["id"] is int ? o["id"] : int.tryParse(o["id"].toString());
+    ShareHelper.showShareBottomSheet(
+      context: context,
+      shareText: text,
+      title: "Share Bulk Order #${o["bulkOrderID"] ?? o["id"]}",
+      phone: o["mobile"]?.toString() ?? o["phone"]?.toString(),
+      email: o["email"]?.toString(),
+      clientName: o["name"]?.toString(),
+      referenceId: id,
+      module: "bulk_order",
+    );
+  }
+
+  void _shareSelectedOrders() {
+    if (_selectedIds.isEmpty) return;
+    final selected = _orders.where((o) {
+      final id = o["id"] is int ? o["id"] : int.tryParse(o["id"].toString()) ?? 0;
+      return _selectedIds.contains(id);
+    }).toList();
+
+    if (selected.isEmpty) return;
+
+    final first = Map<String, dynamic>.from(selected.first);
+    final firstId = first["id"] is int ? first["id"] : int.tryParse(first["id"].toString());
+
+    if (selected.length == 1) {
+      _shareSingleOrder(first);
+      return;
+    }
+
+    final text = ShareHelper.formatMultipleItems(selected, "Bulk Orders");
+    ShareHelper.showShareBottomSheet(
+      context: context,
+      shareText: text,
+      title: "Share Selected Orders (${selected.length})",
+      referenceId: firstId,
+      module: "bulk_order",
+      clientName: first["name"]?.toString(),
+    );
+  }
+
+  void _shareAllOrders() {
+    final visible = _getFilteredOrders();
+    if (visible.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No orders available to share")),
+      );
+      return;
+    }
+
+    if (visible.length == 1) {
+      _shareSingleOrder(Map<String, dynamic>.from(visible.first));
+      return;
+    }
+
+    final text = ShareHelper.formatMultipleItems(visible, "Bulk Orders");
+    ShareHelper.showShareBottomSheet(
+      context: context,
+      shareText: text,
+      title: "Share All Orders (${visible.length})",
+    );
+  }
+
+  void _selectAllVisible() {
+    final visible = _getFilteredOrders();
+    setState(() {
+      _isSelectionMode = true;
+      for (final item in visible) {
+        final id = item["id"] is int ? item["id"] : int.tryParse(item["id"].toString()) ?? 0;
+        if (id != 0) _selectedIds.add(id);
+      }
+    });
+  }
+
+  Future<void> _deleteSelectedOrders() async {
+    if (_selectedIds.isEmpty) return;
+
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text("Delete Selected (${_selectedIds.length})"),
+        content: Text("Are you sure you want to delete ${_selectedIds.length} selected bulk order(s)? This action cannot be undone."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text("Delete"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    int successCount = 0;
+    final idsList = _selectedIds.toList();
+    for (final id in idsList) {
+      try {
+        final res = await ApiDebugLogger.httpClient.delete(
+          Uri.parse("https://bulk.srivagroups.in/api/bulk-orders/$id"),
+        );
+        if (res.statusCode == 200 || res.statusCode == 201 || res.statusCode == 204) {
+          successCount++;
+        }
+      } catch (_) {}
+    }
+
+    if (mounted) Navigator.pop(context);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Successfully deleted $successCount of ${idsList.length} selected orders."),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      setState(() {
+        _selectedIds.clear();
+        _isSelectionMode = false;
+        futureOrders = fetchOrders();
+      });
+    }
+  }
+
+  void _cancelSelection() {
+    setState(() {
+      _isSelectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text("Bulk Orders"),
-        backgroundColor: Color(0xFF3B5BDB),
+        title: Text(_isSelectionMode ? "${_selectedIds.length} Selected" : "Bulk Orders"),
+        backgroundColor: colorScheme.primary,
+        foregroundColor: colorScheme.onPrimary,
+        leading: _isSelectionMode
+            ? IconButton(
+                icon: Icon(Icons.close_rounded, color: colorScheme.onPrimary),
+                onPressed: _cancelSelection,
+              )
+            : null,
         actions: [
+          if (!_isSelectionMode)
+            IconButton(
+              icon: Icon(Icons.checklist_rounded, color: colorScheme.onPrimary),
+              tooltip: "Select Items",
+              onPressed: () {
+                setState(() {
+                  _isSelectionMode = true;
+                });
+              },
+            ),
           IconButton(
-            icon: const Icon(Icons.download_rounded, color: Colors.white),
+            icon: Icon(Icons.download_rounded, color: colorScheme.onPrimary),
             tooltip: "Export CSV Report",
             onPressed: () => _exportToCSV(context),
           ),
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+            icon: Icon(Icons.refresh_rounded, color: colorScheme.onPrimary),
             onPressed: () {
               setState(() {
                 futureOrders = fetchOrders();
@@ -894,6 +1108,135 @@ class _getbukState extends State<getbuk> {
           ),
         ],
       ),
+      bottomNavigationBar: _isSelectionMode
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: colorScheme.shadow.withOpacity(0.12),
+                    blurRadius: 10,
+                    offset: const Offset(0, -3),
+                  ),
+                ],
+                border: Border(
+                  top: BorderSide(
+                    color: colorScheme.outlineVariant.withOpacity(0.5),
+                  ),
+                ),
+              ),
+              child: SafeArea(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    InkWell(
+                      onTap: () {
+                        final visible = _getFilteredOrders();
+                        final isAllSelected = visible.isNotEmpty && visible.every((item) {
+                          final id = item["id"] is int ? item["id"] : int.tryParse(item["id"].toString()) ?? 0;
+                          return _selectedIds.contains(id);
+                        });
+                        setState(() {
+                          if (isAllSelected) {
+                            _selectedIds.clear();
+                          } else {
+                            for (final item in visible) {
+                              final id = item["id"] is int ? item["id"] : int.tryParse(item["id"].toString()) ?? 0;
+                              if (id != 0) _selectedIds.add(id);
+                            }
+                          }
+                        });
+                      },
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.select_all_rounded, color: colorScheme.primary),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Select All",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    InkWell(
+                      onTap: _selectedIds.isEmpty ? null : _shareSelectedOrders,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.share_rounded,
+                            color: _selectedIds.isEmpty
+                                ? colorScheme.onSurface.withOpacity(0.38)
+                                : colorScheme.primary,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Share Selected",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: _selectedIds.isEmpty
+                                  ? colorScheme.onSurface.withOpacity(0.38)
+                                  : colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    InkWell(
+                      onTap: _selectedIds.isEmpty ? null : _deleteSelectedOrders,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.delete_rounded,
+                            color: _selectedIds.isEmpty
+                                ? colorScheme.onSurface.withOpacity(0.38)
+                                : colorScheme.error,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Remove Selected",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: _selectedIds.isEmpty
+                                  ? colorScheme.onSurface.withOpacity(0.38)
+                                  : colorScheme.error,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    InkWell(
+                      onTap: _cancelSelection,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.close_rounded, color: colorScheme.onSurfaceVariant),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Cancel",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : null,
       body: Column(
         children: [
           Container(
@@ -950,7 +1293,11 @@ class _getbukState extends State<getbuk> {
             }
 
             final orders = snapshot.data!;
+            final storage = _storageInstance ?? StorageService.currentInstance;
             List<dynamic> filteredOrders = orders.where((o) {
+              if (o is Map && !storage.isCategoryAllowed(o)) {
+                return false;
+              }
               final name = (o["name"] ?? "").toString().toLowerCase();
               final prod = (o["product"] ?? "").toString().toLowerCase();
               return name.contains(_searchQuery) || prod.contains(_searchQuery);
@@ -1035,7 +1382,7 @@ class _getbukState extends State<getbuk> {
                               Icon(Icons.filter_list_off_rounded, size: 48, color: Colors.grey.shade400),
                               const SizedBox(height: 12),
                               Text(
-                                "No Matching Orders Found",
+                                "No data available for your assigned categories.",
                                 style: TextStyle(fontSize: 16, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
                               ),
                             ],
@@ -1137,28 +1484,59 @@ class _getbukState extends State<getbuk> {
                         );
                       }
 
+                      final isSelected = _selectedIds.contains(id);
+                      final isDarkMode = theme.brightness == Brightness.dark;
+                      final cardBg = isSelected && _isSelectionMode
+                          ? colorScheme.primaryContainer.withOpacity(isDarkMode ? 0.35 : 0.2)
+                          : colorScheme.surface;
+                      final cardBorderColor = isSelected && _isSelectionMode
+                          ? colorScheme.primary
+                          : colorScheme.outlineVariant.withOpacity(0.5);
+
                       return Card(
                         margin: const EdgeInsets.only(bottom: 16),
-                        elevation: 4,
-                        shadowColor: const Color(0x223B5BDB),
+                        elevation: isSelected && _isSelectionMode ? 6 : 2,
+                        shadowColor: colorScheme.shadow.withOpacity(0.1),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(
+                            color: cardBorderColor,
+                            width: isSelected && _isSelectionMode ? 2 : 1,
+                          ),
                         ),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(16),
                           onTap: () {
-                            setState(() {
-                              if (isExpanded) {
-                                _expandedIds.remove(id);
-                              } else {
-                                _expandedIds.add(id);
-                              }
-                            });
+                            if (_isSelectionMode) {
+                              setState(() {
+                                if (_selectedIds.contains(id)) {
+                                  _selectedIds.remove(id);
+                                } else {
+                                  _selectedIds.add(id);
+                                }
+                              });
+                            } else {
+                              setState(() {
+                                if (isExpanded) {
+                                  _expandedIds.remove(id);
+                                } else {
+                                  _expandedIds.add(id);
+                                }
+                              });
+                            }
+                          },
+                          onLongPress: () {
+                            if (!_isSelectionMode) {
+                              setState(() {
+                                _isSelectionMode = true;
+                                _selectedIds.add(id);
+                              });
+                            }
                           },
                           child: Container(
                             padding: const EdgeInsets.all(18),
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: cardBg,
                               borderRadius: BorderRadius.circular(16),
                             ),
                             child: Column(
@@ -1167,7 +1545,30 @@ class _getbukState extends State<getbuk> {
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Expanded(
+                                    if (_isSelectionMode) ...[
+                                      Checkbox(
+                                        value: isSelected,
+                                        activeColor: colorScheme.primary,
+                                        checkColor: colorScheme.onPrimary,
+                                        side: BorderSide(
+                                          color: isSelected
+                                              ? colorScheme.primary
+                                              : colorScheme.onSurface.withOpacity(0.6),
+                                          width: 2,
+                                        ),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                        onChanged: (val) {
+                                          setState(() {
+                                            if (val == true) {
+                                              _selectedIds.add(id);
+                                            } else {
+                                              _selectedIds.remove(id);
+                                            }
+                                          });
+                                        },
+                                      ),
+                                    ],
+                                     Expanded(
                                       child: Wrap(
                                         crossAxisAlignment: WrapCrossAlignment.center,
                                         spacing: 8,
